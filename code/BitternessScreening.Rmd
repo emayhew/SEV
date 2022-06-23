@@ -1,0 +1,56 @@
+---
+title: "Bitterness"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Packages
+
+```{r packages}
+library(tidyverse)
+library(lubridate)
+library(readxl)
+library(purrr)
+library(FactoMineR)
+library(SensoMineR)
+```
+
+# Read in data
+
+```{r read & clean data}
+#read in data
+
+bitt.df <- read_excel("data/Sweet_solutions_-_Session_4_test_-_Raw_Data.xlsx", sheet = 3) %>%
+  
+  #rename and select columns
+  transmute(Date = mdy_hms(`Start Time (UTC)`),
+            SubjectCode = `Subject Code`,
+            SampleName = `Sample Name`,
+            Bitterness = `Remove the paper strip from the sample cup labeled {{sample_code}}, place the strip on your tongue, and rate the intensity of bitterness perceived.`) %>%
+  
+  drop_na(Bitterness)
+  
+
+bitt.df$SubjectCode = as.factor(bitt.df$SubjectCode)
+
+
+  
+```
+
+#Plot bitterness rating
+
+```{r plot bitterness ratings}
+
+bitt.df %>%
+  ggplot(aes(SubjectCode, Bitterness, bitt.df, color = SubjectCode)) +
+    #aes(reorder(SubjectCode, Bitterness), Bitterness, color = SubjectCode))+
+    geom_point()+
+    theme_classic()+
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+  #geom_line()+
+   # facet_wrap(~SubjectCode)
+
+```

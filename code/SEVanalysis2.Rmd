@@ -1,0 +1,592 @@
+---
+title: "SEVanalysis"
+author: "E Mayhew"
+date: "4/1/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Packages
+
+```{r packages}
+library(tidyverse)
+library(lubridate)
+library(readxl)
+library(purrr)
+library(webchem)
+library(FactoMineR)
+library(SensoMineR)
+```
+
+# Read in data
+
+```{r read & clean data}
+
+#read in survey data  
+raw.df <- read_excel("data/Sweet_solutions_-_Session_2_test_-_Raw_Data.xlsx", sheet = 3) %>%
+  bind_rows(read_excel("data/Sweet_solutions_-_Session_3_test_-_Raw_Data.xlsx", sheet = 3)) %>%
+  bind_rows(read_excel("data/Sweet_solutions_-_Session_4_test_-_Raw_Data.xlsx", sheet = 3)) %>%
+    
+  #rename and select columns
+  transmute(Date = mdy_hms(`Start Time (UTC)`),
+            SubjectCode = `Subject Code`,
+            SampleIdentifier = `Sample Identifier`,
+            SampleName = `Sample Name`,
+            Sweetness_pinched = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness with nose pinched.`,
+            Sweetness_unpinched = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness without nose pinched.`) %>%
+            
+  
+  #Remove test strip samples
+  filter(SampleName != "Test Strip")
+
+#add concentration data to raw.df
+#raw.df <- full_join(conc.df, raw.df, by = "SampleName")
+  
+# create a new column for the replicate numbers with the default number of 1
+raw.df$Rep <- 1
+
+raw.df <- raw.df %>%
+  relocate(Rep, .after = SampleName)
+
+#find replicate numbers within sample names and change the number in the rep column to match the sample name rep number in that row
+raw.df[grep(x=raw.df$SampleName, pattern = " 2$"),]$Rep <- 2
+raw.df[grep(x=raw.df$SampleName, pattern = " 3$"),]$Rep <- 3
+raw.df[grep(x=raw.df$SampleName, pattern = " 4$"),]$Rep <- 4
+raw.df[grep(x=raw.df$SampleName, pattern = " 5$"),]$Rep <- 5
+
+#remove the replicate number from each sample name
+raw.df$SampleName <- gsub(x = raw.df$SampleName, pattern = " [1-5]$",replacement = "") 
+
+```
+
+# calculate delta between pinched and unpinched ratings, determine delta means and SE
+
+```{r create a new data frame with delta, means, and SE}
+#create a copy of the raw data frame to alter
+df<- raw.df
+
+#find delta, SE of each rating, merge delta and SE columns into df1
+df<- df %>% 
+  mutate(Delta = Sweetness_unpinched - Sweetness_pinched) %>%
+  group_by(SampleName, Rep) %>% 
+  summarise(meanDelta = mean(Delta), 
+            seDelta = sd(Delta)/sqrt(n()))
+  
+df1<-  full_join(raw.df, df) %>%
+   mutate(Delta = Sweetness_unpinched - Sweetness_pinched)
+
+
+#df1$SubjectCode <- as.factor(df1$SubjectCode)
+  
+#res.aov <- aov(Delta ~ SampleName*SubjectCode, data = df1)
+#summary.aov(res.aov)
+
+```
+
+# Plot data
+
+```{r plot sweetness delta from just sessions 2 and 3}
+
+
+df1 %>%
+  filter(
+    SubjectCode != 1008, #person has wide swings in pinched vs unpinched
+    Date < as.Date("2022-04-21")) %>% #majority of individuals completed session 3 by 04/20/2022
+  mutate(Delta = Sweetness_unpinched - Sweetness_pinched) %>%
+  group_by(SampleName) %>% 
+  summarise(meanDelta = mean(Delta), 
+            seDelta = sd(Delta)/sqrt(n())) %>% 
+  
+  #make plot of meanDelta for each sample, order by increase meanDelta
+  ggplot( aes(reorder(SampleName, meanDelta), meanDelta)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = meanDelta - seDelta, ymax = meanDelta + seDelta)) +
+    geom_hline( yintercept = 0.49, color = "royalblue") + #0.49 is the mean + SE of sugar water
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+```
+
+```{r plot sweetness delta from all sessions + all treatments}
+
+df1 %>%
+  filter(
+    SubjectCode != 1004, #these people have really inconsistent data
+     SubjectCode != 1005,
+     SubjectCode != 1015,
+     SubjectCode != 1016,
+     SubjectCode != 1020,
+     SubjectCode != 1025,
+     SubjectCode != 1032,
+    SubjectCode != 1033,
+     SubjectCode != 1038,
+     SubjectCode != 1041,
+    SubjectCode != 1001, #Emily
+    SubjectCode != 1002, #Hannah
+    SubjectCode != 1101, #Alaina
+    SubjectCode != 1008 #person has wide swings in pinched vs unpinched
+    ) %>% 
+  mutate(Delta = Sweetness_unpinched - Sweetness_pinched) %>%
+  group_by(SampleName) %>% 
+  summarise(meanDelta = mean(Delta), 
+            seDelta = sd(Delta)/sqrt(n())) %>% 
+  #mutate(SEVrank = rank(-meanDelta)) %>%
+  #arrange(SEVrank) %>%
+
+  #make plot of meanDelta for each sample, order by increase meanDelta
+  ggplot( aes(reorder(SampleName, meanDelta), meanDelta)) +
+    geom_point()+
+    geom_errorbar(aes(ymin = meanDelta - seDelta, ymax = meanDelta + seDelta)) +
+    geom_hline( yintercept = 0.99, color = "royalblue") + #value is the mean + SE of sugar water
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("plots/meanDeltaWOinconsistentSubjects.png", width = 14, height = 10)
+  
+```
+
+```{r plot sweetness delta of top 12 + all combo treatments}
+
+#create a new data frame containing only the top 12 compounds + their combos
+#%in% will look in the column specified for the strings specified in c()
+df2<-df1[df1$SampleName %in% c(
+                                "Sugar Water",
+                                "FRNN furanone", 
+                                "VANL vanillin", 
+                                "MHPN 6-methyl-5-heptene-2-one", 
+                                "Top3 [Study]", 
+                                "Top3 [Nature]", 
+                                "Top6 [Nature]", 
+                                "Top12 [Nature]", 
+                                "All [Nature]", 
+                                "VANL + FRNN [Study]", 
+                                "VANL + MPHN [Study]", 
+                                "ISML isoamylacetate", 
+                                "EVLT ethyl valerate", 
+                                "GDLC gamma-dodecalactone", 
+                                "HACT hexyl acetate", 
+                                "PBUT pentyl butyrate", 
+                                "EBUT ethyl butyrate", 
+                                "PNTL (E)-2-penten-1-al", 
+                                "LOOL linalool", 
+                                "NNAL nonanal"),] #left of comma = looks in rows, right = columns
+  
+df2 %>%
+  filter(
+    SubjectCode != 1008 #person has wide swings in pinched vs unpinched
+    ) %>%
+  mutate(Delta = Sweetness_unpinched - Sweetness_pinched) %>%
+  group_by(SampleName) %>% 
+  summarise(meanDelta = mean(Delta), 
+            seDelta = sd(Delta)/sqrt(n())) %>% 
+  
+  ggplot( aes(reorder(SampleName, meanDelta), meanDelta))+
+    geom_point()+
+    geom_errorbar(aes(ymin = meanDelta - seDelta, ymax = meanDelta + seDelta))+
+    geom_hline( yintercept = 0.49, color = "royalblue")+ #0.49 is the mean + SE of sugar water
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+```
+
+```{r plot sweetness - all subjects, all data points}
+df1 %>%
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched,
+               names_to = "NosePinch",
+               values_to = "Rating")%>%
+  
+  ggplot( aes(reorder(SampleName, Rating), Rating, color = NosePinch)) +
+    geom_point() +
+    facet_wrap(~SubjectCode) +
+    theme(axis.text.x = element_blank())
+
+
+```
+
+```{r plot sweetness - facet by molecule}
+
+ df1 %>%
+ filter(
+    SubjectCode != 1004, #these people have really inconsistent data
+     SubjectCode != 1005,
+     SubjectCode != 1015,
+     SubjectCode != 1016,
+     SubjectCode != 1020,
+     SubjectCode != 1025,
+     SubjectCode != 1032,
+    SubjectCode != 1033,
+     SubjectCode != 1038,
+     SubjectCode != 1041,
+    SubjectCode != 1001, #Emily
+    SubjectCode != 1002, #Hannah
+    SubjectCode != 1101, #Alaina
+    SubjectCode != 1008 #person has wide swings in pinched vs unpinched
+    ) %>% 
+  
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched,
+               names_to = "NosePinch",
+               values_to = "Rating") %>%
+  
+  mutate(SubjectCode = as.factor(SubjectCode)) %>%
+  mutate(PinchNum = case_when(NosePinch == "Sweetness_pinched" ~ 1,
+                              TRUE ~ 2))%>%
+  ggplot() +
+    geom_boxplot(aes(as.character(PinchNum), Rating)) +
+    geom_point(aes(PinchNum, Rating, color = SubjectCode)) +
+    geom_line(aes(PinchNum, Rating, color = SubjectCode)) +
+    facet_wrap(~SampleName) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+```{r sugar water control plots}
+
+#sugar water data for all panelists
+df1 %>%
+  
+  filter(SampleName %in% c("Sugar Water")) %>%
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched,
+               names_to = "NosePinch",
+               values_to = "Rating")%>%
+  
+  ggplot(aes(x=as.character(Rep), y=Rating, color = NosePinch))+
+    geom_boxplot() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+#sugar water by panelist
+df1%>%
+  filter(SampleName %in% c("Sugar Water")) %>%
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched,
+               names_to = "NosePinch",
+               values_to = "Rating") %>%
+  
+  ggplot( aes(x=as.character(Rep), y=Rating, color = NosePinch)) +
+  geom_boxplot() +
+  facet_wrap("SubjectCode") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+#Repeatability and TRT
+
+```{r repeatability data}
+
+#subset a new data frame by looking for all subjects who have completed replicate data
+rep.df <- df1[df1$SubjectCode %in% unique(df1[df1$Rep >= 2,]$SubjectCode),]
+
+#make replicate column a factor
+rep.df$Rep <- as.factor(rep.df$Rep)
+
+#Find all samples that are replicate 2
+Duplicates <- rep.df[rep.df$Rep == 2,]$SampleName
+
+#subset rep.df with samples that are in the Duplicates vector
+rep.df <- rep.df[rep.df$SampleName %in% Duplicates,]
+
+#make Rep numeric factor
+rep.df[as.numeric(rep.df$Rep) <= 2,] %>%
+  
+  #look at overall means of sample deltas that have reps
+  ggplot( aes(reorder(SampleName, meanDelta), meanDelta, color = Rep)) +
+    geom_point(aes(color = Rep)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+#subset only individuals who have done replicates into new dataframe
+rep.df2 <- rep.df[rep.df$SubjectCode %in% c("1002", "1004", "1005", "1007", "1008", "1010", "1011", "1012", "1013", "1014", "1015", "1016", "1018", "1020", "1022", "1023", "1024", "1025", "1027", "1028", "1029", "1031", "1032", "1033", "1035", "1036", "1037", "1038", "1041", "1044", "1045", "1101", "1103"),]
+
+#facet wrap by subject
+#rep.df2[as.numeric(rep.df2$Rep) <= 2,] %>%
+ # ggplot( aes(reorder(SampleName, Delta), Delta, color = Rep)) +
+  #  geom_point(aes(color = Rep)) +
+   # facet_wrap(~SubjectCode) +
+    #theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#TRT Delta comparisons
+trt.delta <- rep.df2 %>%
+  select(SubjectCode, SampleName, Rep, Delta) %>%
+  filter(Rep != 3,
+         Rep != 4,
+         Rep != 5) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = Delta) %>%
+
+  group_by(SubjectCode) %>%
+  drop_na(Rep1) %>%
+  drop_na(Rep2) %>%
+  summarise(TRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
+
+#TRT unpinched comparisons
+trt.unpinched <- rep.df2 %>%
+  select(SubjectCode, SampleName, Rep, Sweetness_unpinched) %>%
+  filter(Rep != 3,
+         Rep != 4,
+         Rep != 5) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = Sweetness_unpinched) %>%
+
+  group_by(SubjectCode) %>%
+  drop_na(Rep1) %>%
+  drop_na(Rep2) %>%
+  summarise(TRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
+
+#TRT pinched comparisons
+trt.pinched <- rep.df2 %>%
+  select(SubjectCode, SampleName, Rep, Sweetness_pinched) %>%
+  filter(Rep != 3,
+         Rep != 4,
+         Rep != 5) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = Sweetness_pinched) %>%
+
+  group_by(SubjectCode) %>%
+  drop_na(Rep1) %>%
+  drop_na(Rep2) %>%
+  summarise(TRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
+
+
+rep.df2 %>%
+  select(SubjectCode, SampleName, Rep, Sweetness_unpinched, Sweetness_pinched)%>%
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched, names_to = "Type", values_to = "Rating")%>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = Rating)%>%
+  drop_na(Rep2) %>%
+  drop_na(Rep2) %>%
+  #filter(Rep1 != "NULL")%>%
+  ggplot( aes(as.numeric(Rep1), as.numeric(Rep2), color = Type))+
+  geom_point()+
+  facet_wrap(~as.factor(SubjectCode))
+
+```
+
+# Normalize Data
+``` {r normalize data}
+
+#read in and combine sugar water screening data
+screener.df <- read_excel("data/Sweet_solutions_-_Session_1_screener_-_Raw_Data.xlsx", sheet = 3) %>%
+  bind_rows(read_excel("data/Sweet_solutions_-_Anonymous_online_session_1_screener_-_Raw_Data.xlsx", sheet = 3)) %>%
+  
+  
+  #Clean up repeated subject codes
+  mutate(`Subject Code` = case_when(`Participant Name` %in% c("1001", "1002", "1003", "1006", "1008", "1011", "1012", "1014", "1015") ~ as.numeric(`Participant Name`) + 100,
+                                      TRUE ~ `Subject Code`)) %>%
+
+  #Rename columns and remove unwanted data
+  transmute(SubjectCode = `Subject Code`,
+            SampleIdentifier = `Sample Identifier`,
+            SampleName = `Sample Name`,
+            Rating = `Please take a sip of sample {{sample_code}} and rate the sweetness intensity of the beverage using the scale below.`) %>%
+  
+  #Split Sample into 2 columns named Concentration and Rep
+  separate(SampleName, into = c("Concentration", "Rep"), sep = " g/L ") %>%
+  
+  #drop rows containing NA
+  drop_na(Rating)
+
+#calculate max rating
+max.rating <- screener.df %>%
+  group_by(SubjectCode)%>%
+  summarise(MaxRating = max(Rating))
+
+min.max <- raw.df %>%
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched, names_to = "type", values_to = "Rating") %>%
+  group_by(SubjectCode)%>%
+  summarise(MinRating = min(Rating, na.rm = T),
+            MaxRating = max(Rating, na.rm = T))
+  
+df.norm <- raw.df %>%
+  left_join(., min.max) %>%
+  mutate(normSP = (Sweetness_pinched - MinRating)/MaxRating,
+         normSU = (Sweetness_unpinched - MinRating)/MaxRating,
+         normDelta = normSU - normSP)
+```
+# ANOVA
+
+```{r}
+anova2 <- aov(normSU ~ SubjectCode*SampleName, data = df.norm)
+summary(anova2)
+plot(anova2)
+TukeyHSD(anova2)
+```
+
+
+# Plot normalized data
+
+```{r plot normalized pinch vs unpinched}
+df.norm %>%
+
+  #group_by(SampleName, Date)%>%
+  group_by(SampleName) %>%
+  summarise(Pinched_mean = mean(normSP),
+            Pinched_se = sd(normSP)/sqrt(n()),
+            Unpinched_mean = mean(normSU),
+            Unpinched_se = sd(normSU)/sqrt(n())) %>%
+  pivot_longer(Pinched_mean:Unpinched_se,
+               names_to = "NosePinch",
+               values_to = "Rating")%>%
+separate(NosePinch, into = c("NosePinch", "ValueType"), sep = "_")%>%
+  pivot_wider(names_from = ValueType, values_from = Rating) %>%
+  ggplot( aes(reorder(SampleName, mean), mean, color = NosePinch, shape = NosePinch))+
+    geom_point()+
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se))+
+  #facet_wrap(~Date)+
+    ylim(0,1)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r plot meanDelta normalized}
+df.norm %>%
+  filter(SubjectCode != 1008)%>% #this person gives very dramatic rating swings
+  mutate(normDelta = Sweetness_unpinched - Sweetness_pinched)%>%
+  group_by(SampleName)%>%
+  summarise(meanDelta = mean(normDelta),
+            seDelta = sd(normDelta)/sqrt(n()))%>%
+  mutate(SEVrank = rank(-meanDelta))%>%
+  arrange(SEVrank)
+
+df.norm %>%
+  filter(SubjectCode != 1008)%>% #this person gives very dramatic rating swings
+  group_by(SampleName)%>%
+  summarise(mean.normDelta = mean(normDelta),
+            se.normDelta = sd(normDelta)/sqrt(n()))%>%
+    ggplot( aes(reorder(SampleName, mean.normDelta), mean.normDelta))+
+    geom_point()+
+      geom_errorbar(aes(ymin = mean.normDelta - se.normDelta, ymax = mean.normDelta + se.normDelta))+
+  geom_hline( yintercept = -0.0207 + 0.0343, color = "royalblue")+
+    ylim(-0.2,1)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Normalized TRT
+```{r normalized TRT}
+#create a copy of the normalized data frame to alter
+df<- df.norm
+
+#find delta, SE of each rating, merge delta and SE columns into df1
+df<- df %>%
+  mutate(normDelta = normSP - normSU) %>%
+  group_by(SampleName, Rep) %>% 
+  summarise(mean.normDelta = mean(normDelta), 
+            se.normDelta = sd(normDelta)/sqrt(n()))
+  
+norm.df1<-  full_join(df.norm, df) %>%
+   mutate(normDelta = normSU - normSP)
+
+#subset a new data frame by looking for all subjects who have completed replicate data
+norm.rep.df <- norm.df1[df1$SubjectCode %in% unique(norm.df1[norm.df1$Rep >= 2,]$SubjectCode),]
+
+#make replicate column a factor
+norm.rep.df$Rep <- as.factor(norm.rep.df$Rep)
+
+#Find all samples that are replicate 2
+Duplicates <- norm.rep.df[norm.rep.df$Rep == 2,]$SampleName
+
+#subset rep.df with samples that are in the Duplicates vector
+norm.rep.df <- norm.rep.df[norm.rep.df$SampleName %in% Duplicates,]
+
+#make Rep numeric factor
+norm.rep.df[as.numeric(norm.rep.df$Rep) <= 2,]
+
+#subset only individuals who have done replicates into new dataframe
+norm.rep.df2 <- norm.rep.df[norm.rep.df$SubjectCode %in% c("1002", "1004", "1005", "1007", "1008", "1010", "1011", "1012", "1013", "1014", "1015", "1016", "1018", "1020", "1022", "1023", "1024", "1025", "1027", "1028", "1029", "1031", "1032", "1033", "1035", "1036", "1037", "1038", "1041", "1044", "1045", "1101", "1103"),]
+
+#TRT Delta comparisons
+norm.trt.delta <- norm.rep.df2 %>%
+  select(SubjectCode, SampleName, Rep, normDelta) %>%
+  filter(Rep != 3,
+         Rep != 4,
+         Rep != 5) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = normDelta) %>%
+
+  group_by(SubjectCode) %>%
+  drop_na(Rep1) %>%
+  drop_na(Rep2) %>%
+  summarise(TRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
+
+#TRT unpinched comparisons
+norm.trt.unpinched <- norm.rep.df2 %>%
+  select(SubjectCode, SampleName, Rep, normSU) %>%
+  filter(Rep != 3,
+         Rep != 4,
+         Rep != 5) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = normSU) %>%
+
+  group_by(SubjectCode) %>%
+  drop_na(Rep1) %>%
+  drop_na(Rep2) %>%
+  summarise(TRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
+
+#TRT pinched comparisons
+norm.trt.pinched <- norm.rep.df2 %>%
+  select(SubjectCode, SampleName, Rep, normSU) %>%
+  filter(Rep != 3,
+         Rep != 4,
+         Rep != 5) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = normSU) %>%
+
+  group_by(SubjectCode) %>%
+  drop_na(Rep1) %>%
+  drop_na(Rep2) %>%
+  summarise(TRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
+
+
+norm.rep.df2 %>%
+  select(SubjectCode, SampleName, Rep, normDelta) %>%
+  filter(Rep != 3,
+         Rep != 4,
+         Rep != 5) %>%
+ # pivot_longer(normSP:normSU, names_to = "Type", values_to = "Rating") %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = normDelta) %>%
+  drop_na(Rep2) %>%
+  drop_na(Rep1) %>%
+  #filter(Rep1 != "NULL")%>%
+  ggplot( aes(as.numeric(Rep1), as.numeric(Rep2), color = SampleName))+
+  geom_point()+
+  facet_wrap(~as.factor(SubjectCode))
+
+```
+
+
+# Mixture comparison
+
+```{r}
+df.norm %>%
+  filter(SampleName %in% c("Top3 [Study]", "Top3 [Nature]", "Top6 [Nature]", "Top12 [Nature]"))%>%
+  mutate(SampleName = factor(SampleName,
+                             levels = c("Top3 [Study]", "Top3 [Nature]", "Top6 [Nature]", "Top12 [Nature]")))%>%
+  ggplot( aes(SampleName, normSU))+
+    geom_violin(draw_quantiles = c(0.5))+
+  geom_jitter()+
+    ylim(0,1)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Read in concentration data
+
+``` {r read in concentration data}
+
+
+#read in concentration and compound data, reformat
+#conc.df <-read_excel("data/compound concentrations.xlsx") %>%
+ # transmute(SampleName = `Sample Name`,
+  #          NatureConc = `Nature Concentration (ppm)`,
+   #         StudyConc = `Study Concentration (ppm)`) %>%
+
+  #get PubChem CIDs for each compound
+#  mutate(CID = get_cid(c("2-isobutyl thiazole","methyl thiobutyrate","ethyl valerate","(E)-2-decen-1-al","isoamyl acetate", "isovaleraldehyde","heptanal","4-hydroxy-2,5-dimethyl-3(2H)-furanone","ethyl butyrate","4-methoxy-2,5-dimethyl-3(2H)-furanone","linalool","ethyl decanoate","2-methyl butyric acid","2-phenylethanol","gamma-dodecalactone","vanillin","hexyl acetate","geranylacetone","propyl butanoate","butyl isovalerate","(E)-2-hexen-1-yl butyrate","pentyl butyrate","octyl acetate","(E)-2-penten-1-al","nonanal","2-ethyl-1-hexanol","hexyl butyrate","6-methyl-5-heptene-2-one"))$cid, .before = SampleName) %>%
+  
+  #get molecular weights of each compound
+  # mutate(MW = cir_query(c("2-isobutyl thiazole","methyl thiobutyrate","ethyl valerate","(E)-2-decen-1-al","isoamyl acetate", "isovaleraldehyde","heptanal","4-hydroxy-2,5-dimethyl-3(2H)-furanone","ethyl butyrate","4-methoxy-2,5-dimethyl-3(2H)-furanone","linalool","ethyl decanoate","2-methyl butyric acid","2-phenylethanol","gamma-dodecalactone","vanillin","hexyl acetate","geranylacetone","propyl butanoate","butyl isovalerate","(E)-2-hexen-1-yl butyrate","pentyl butyrate","octyl acetate","(E)-2-penten-1-al","nonanal","2-ethyl-1-hexanol","hexyl butyrate","6-methyl-5-heptene-2-one"), representation = "mw", match = "first"), .after = SampleName)
+
+  #MWlist <- as.numeric(unlist(conc.df$MW))
+                       
+  #conc.df$MW <- MWlist
+
+  #conc.df <- conc.df %>%
+   # mutate(Study.uM = ((StudyConc)*0.001/MW)*1000000,
+    #       Study.mM = ((StudyConc)*0.001/MW)*1000) %>%
+    
+  #  mutate(Nature.uM = ((NatureConc)*0.001/MW)*1000000,
+   #        Nature.mM = ((NatureConc)*0.001/MW)*1000)
+  
+```

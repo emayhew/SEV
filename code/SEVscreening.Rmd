@@ -1,0 +1,134 @@
+---
+title: "SEV Screening"
+author: "E Mayhew"
+date: "3/30/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Load packages
+
+```{r packages}
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+```
+
+
+# Read in data
+
+```{r read & clean data}
+
+#read in and combine data
+raw.df <- read_excel("data/Sweet_solutions_-_Session_1_screener_-_Raw_Data.xlsx", sheet = 3) %>%
+  bind_rows(read_excel("data/Sweet_solutions_-_Anonymous_online_session_1_screener_-_Raw_Data.xlsx", sheet = 3)) %>%
+  
+
+  
+  #Clean up repeated subject codes
+  mutate(`Subject Code` = case_when(`Participant Name` %in% c("1001", "1002", "1003", "1006", "1008", "1011", "1012", "1014", "1015", "1017") ~ as.numeric(`Participant Name`) + 100,
+                                      TRUE ~ `Subject Code`)) %>%
+
+  #Rename columns and remove unwanted data
+  transmute(SubjectCode = `Subject Code`,
+            SampleIdentifier = `Sample Identifier`,
+            SampleName = `Sample Name`,
+            Rating = `Please take a sip of sample {{sample_code}} and rate the sweetness intensity of the beverage using the scale below.`) %>%
+  
+  #Split Sample into 2 columns named Concentration and Rep
+  separate(SampleName, into = c("Concentration", "Rep"), sep = " g/L ") %>%
+  
+  #drop rows containing NA
+  drop_na(Rating)
+  
+```
+
+
+# Calculate TRT and check intensity rankings
+```{r rating ranks & TRT}
+
+#Check intensity rating ranks
+ir.df <- raw.df %>%
+  #Remove SampleIdentifier column
+  select(-SampleIdentifier) %>%
+  #Group data by each subject and by concentration
+  group_by(SubjectCode, Concentration) %>%
+  #Determine the means of each subject's rating at each concentration
+  summarise(meanRating = mean(Rating)) %>%
+  #Make each concentration a column and put the corresponding mean rating value under each respective column
+  pivot_wider(names_from = Concentration, names_prefix = "Conc", values_from = meanRating) %>%
+  
+  #determine if subject correctly ranked concentrations in order with 100% accuracy or mostly correct 
+  mutate(CorrectRank = case_when(Conc0 < Conc25 & Conc25 < Conc50 & Conc50 < Conc75 & Conc75 < Conc100 ~ "yes",
+                                 Conc0 < Conc25 & Conc25 < Conc50 & Conc50 < Conc75  ~ "mostly",
+                                 Conc0 < Conc25 & Conc25 < Conc50 & Conc75 < Conc100 ~ "mostly",
+                                 Conc0 < Conc25 & Conc50 < Conc75 & Conc75 < Conc100 ~ "mostly",
+                                 Conc25 < Conc50 & Conc50 < Conc75 & Conc75 < Conc100 ~ "mostly",
+                                TRUE ~ "no"))
+  
+
+#Check TRT
+trt.df <- raw.df %>%
+  
+  #Remove SampleIdentifier column
+  select(-SampleIdentifier) %>%
+  #Make column for each separate rep rating
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = Rating) %>%
+  #group data by subjects
+  group_by(SubjectCode) %>%
+  #calculate TRT correlation for each subject
+  summarise(TRT = cor(Rep1, Rep2))
+  
+#Print a table with intensity ratings rank check and TRT data
+ir.df %>%
+  left_join(trt.df) %>%
+  select(SubjectCode, TRT, CorrectRank) %>%
+  mutate(Pass = case_when(TRT > 0.7 & CorrectRank == "yes" ~ "pass",
+                          TRT > 0.7 & CorrectRank == "mostly" ~ "pass",
+                          TRUE ~ "fail"))%>%
+  arrange(Pass)
+
+```
+
+
+# Plot data for each subject
+
+```{r TRT}
+
+#plot rep 2 ratings vs. rep 1 ratings for each subject
+raw.df %>% 
+  select(-SampleIdentifier)%>%
+  #filter(SubjectCode == 1117) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = Rating)%>%
+  ggplot( aes(Rep1, Rep2))+
+  geom_point( aes (shape = Concentration))+
+  #facet_wrap(~SubjectCode)+
+  geom_smooth(method = "lm")+
+  geom_text(data = trt.df, aes(label = round(TRT, 2), x = 10, y = 60), color = "red")+
+  ggtitle("Test-Retest Correlation")+
+  theme_minimal()
+
+```
+
+
+
+```{r Dose-Response}
+
+#plot mean ratings vs. sugar concentration for each subject
+raw.df %>% 
+  mutate(Concentration = as.numeric(Concentration))%>%
+  group_by(SubjectCode, Concentration)%>%
+  summarise(meanRating = mean(Rating))%>%
+  ggplot( aes(Concentration, meanRating))+
+  geom_point()+
+  facet_wrap(~SubjectCode)+
+  #geom_smooth(method = "lm")+
+  #geom_text(data = trt.df, aes(label = round(TRT, 2), x = 10, y = 60), color = "red")+
+  ggtitle("Dose/Response curves")
+
+```
+

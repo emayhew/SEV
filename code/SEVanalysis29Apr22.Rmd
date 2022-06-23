@@ -1,0 +1,335 @@
+---
+title: "SEVanalysis"
+author: "E Mayhew"
+date: "4/1/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Packages
+
+```{r packages}
+library(tidyverse)
+library(lubridate)
+library(readxl)
+library(purrr)
+library(FactoMineR)
+```
+
+# Read in data
+
+```{r read & clean data}
+#read in and combine data
+
+df <- read_excel("data/Sweet_solutions_-_Session_2_test_-_Raw_Data.xlsx", sheet = 3) %>%
+ bind_rows(read_excel("data/Sweet_solutions_-_Session_3_test_-_Raw_Data.xlsx", sheet = 3)) %>%
+ bind_rows(read_excel("data/Sweet_solutions_-_Session_4_test_-_Raw_Data.xlsx", sheet = 3)) %>%
+  
+  #rename and select columns
+  transmute(Date = mdy_hms(`Start Time (UTC)`),
+            SubjectCode = `Subject Code`,
+            SampleIdentifier = `Sample Identifier`,
+            SampleName = `Sample Name`,
+            Sweetness_pinched = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness with nose pinched.`,
+            Sweetness_unpinched = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness without nose pinched.`)
+
+#Bitterness = `Remove the paper strip from the sample cup labeled {{sample_code}}, place the strip on your tongue, and rate the intensity of bitterness  perceived.`
+  
+# create a new column for the replicate numbers with the default number of 1
+df$Rep <- 1
+
+df <- df %>%
+  relocate(Rep, .after = SampleName)
+
+#find replicate numbers within sample names and change the number in the rep column to match the sample name rep number in that row
+df[grep(x=df$SampleName, pattern = " 2$"),]$Rep <- 2
+df[grep(x=df$SampleName, pattern = " 3$"),]$Rep <- 3
+df[grep(x=df$SampleName, pattern = " 4$"),]$Rep <- 4
+df[grep(x=df$SampleName, pattern = " 5$"),]$Rep <- 5
+
+#remove the replicate number from each sample name
+df$SampleName <- gsub(x = df$SampleName, pattern = " [1-5]$",replacement = "") 
+ 
+```
+# Plot data
+
+```{r plot sweetness}
+df %>%
+  group_by(SampleName)%>%
+  summarise(Pinched = mean(Sweetness_pinched),
+            Unpinched = mean(Sweetness_unpinched))%>%
+  pivot_longer(Pinched:Unpinched,
+               names_to = "NosePinch",
+               values_to = "Rating")%>%
+  ggplot( aes(reorder(SampleName, Rating), Rating, color = NosePinch, shape = NosePinch))+
+    geom_point()+
+    ylim(0,35)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r rank molecules by delta sweetness}
+df %>%
+  filter(SubjectCode != 1008)%>% #this person gives very dramatic rating swings
+  mutate(Delta = Sweetness_unpinched - Sweetness_pinched)%>%
+  group_by(SampleName)%>%
+  summarise(meanDelta = mean(Delta),
+            seDelta = sd(Delta)/sqrt(n()))%>%
+  mutate(SEVrank = rank(-meanDelta))%>%
+  arrange(SEVrank)
+
+
+df %>%
+  filter(SubjectCode != 1008)%>% #this person gives very dramatic rating swings
+  mutate(Delta = Sweetness_unpinched - Sweetness_pinched)%>%
+  group_by(SampleName)%>%
+  summarise(meanDelta = mean(Delta),
+            seDelta = sd(Delta)/sqrt(n()))%>%
+    ggplot( aes(reorder(SampleName, meanDelta), meanDelta))+
+    geom_point()+
+      geom_errorbar(aes(ymin = meanDelta - seDelta, ymax = meanDelta + seDelta))+
+  geom_hline( yintercept = 0.9227, color = "royalblue")+
+    ylim(0,35)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+```{r plot sweetness by molecule with error bars}
+df %>%
+  #group_by(SampleName, Date)%>%
+  group_by(SampleName)%>%
+  summarise(Pinched_mean = mean(Sweetness_pinched),
+            Pinched_SD = sd(Sweetness_pinched),
+            Unpinched_mean = mean(Sweetness_unpinched),
+            Unpinched_SD = sd(Sweetness_pinched))%>%
+  pivot_longer(Pinched_mean:Unpinched_SD,
+               names_to = "NosePinch",
+               values_to = "Rating")%>%
+separate(NosePinch, into = c("NosePinch", "ValueType"), sep = "_")%>%
+  pivot_wider(names_from = ValueType, values_from = Rating)%>%
+  ggplot( aes(reorder(SampleName, mean), mean, color = NosePinch, shape = NosePinch))+
+    geom_point()+
+  geom_errorbar(aes(ymin = mean - SD, ymax = mean +SD))+
+  #facet_wrap(~Date)+
+    ylim(0,100)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+
+```{r plot sweetness - individual data points}
+df %>%
+  filter(SampleName %in% c("Sugar Water 1", "Sugar Water 2", "Sugar Water 3", "Sugar Water 4"))%>%
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched,
+               names_to = "NosePinch",
+               values_to = "Rating")%>%
+  ggplot( aes(reorder(SampleName, Rating), Rating, color = NosePinch))+
+    geom_point()+
+  #geom_line()+
+    facet_wrap(~SubjectCode)+
+    ylim(0,100)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+
+```{r plot sweetness - facet by molecule}
+df %>%
+pivot_longer(Sweetness_pinched:Sweetness_unpinched,
+               names_to = "NosePinch",
+               values_to = "Rating")%>%
+  mutate(SubjectCode = as.factor(SubjectCode))%>%
+  mutate(PinchNum = case_when(NosePinch == "Sweetness_pinched" ~ 1,
+                              TRUE ~ 2))%>%
+  ggplot()+
+  geom_boxplot(aes(as.character(PinchNum), Rating))+
+    geom_point(aes(PinchNum, Rating, color = SubjectCode))+
+  geom_line(aes(PinchNum, Rating, color = SubjectCode))+
+    facet_wrap(~SampleName)+
+    ylim(0,100)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+# Test-retest
+```{r}
+trt <- df %>%
+  select(SubjectCode, SampleName, Rep, Sweetness_unpinched)%>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = Sweetness_unpinched)%>%
+  drop_na(Rep2) %>%
+  filter(Rep1 != "NULL")%>%
+  group_by(SubjectCode)%>%
+  summarise(TRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
+
+df %>%
+  separate(SampleName, into = c("Code", "Name"), sep = " ") %>%
+  mutate(Rep = case_when(Name == 2 ~ 2,
+                         TRUE ~ 1), 
+         .after = "Code") %>%
+  select(SubjectCode, Code, Rep, Sweetness_unpinched, Sweetness_pinched)%>%
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched, names_to = "Type", values_to = "Rating")%>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = Rating)%>%
+  drop_na(Rep2) %>%
+  filter(Rep1 != "NULL")%>%
+  ggplot( aes(as.numeric(Rep1), as.numeric(Rep2), color = Type))+
+  geom_point()+
+  facet_wrap(~as.factor(SubjectCode))
+```
+
+
+# ANOVA
+
+```{r}
+anova1 <- aov(Sweetness_unpinched ~ SubjectCode*SampleName, data = df)
+summary(anova1)
+plot(anova1)
+TukeyHSD(anova1)
+```
+
+# Normalize data
+
+```{r}
+#read in and combine sugar water screening data
+raw.df <- read_excel("data/Sweet_solutions_-_Session_1_screener_-_Raw_Data.xlsx", sheet = 3) %>%
+  bind_rows(read_excel("data/Sweet_solutions_-_Anonymous_online_session_1_screener_-_Raw_Data.xlsx", sheet = 3)) %>%
+  
+
+  
+  #Clean up repeated subject codes
+  mutate(`Subject Code` = case_when(`Participant Name` %in% c("1001", "1002", "1003", "1006", "1008") ~ as.numeric(`Participant Name`) + 100,
+                                      TRUE ~ `Subject Code`)) %>%
+
+  #Rename columns and remove unwanted data
+  transmute(SubjectCode = `Subject Code`,
+            SampleIdentifier = `Sample Identifier`,
+            SampleName = `Sample Name`,
+            Rating = `Please take a sip of sample {{sample_code}} and rate the sweetness intensity of the beverage using the scale below.`) %>%
+  
+  #Split Sample into 2 columns named Concentration and Rep
+  separate(SampleName, into = c("Concentration", "Rep"), sep = " g/L ") %>%
+  
+  #drop rows containing NA
+  drop_na(Rating)
+
+#calculate max rating
+max.rating <- raw.df %>%
+  group_by(SubjectCode)%>%
+  summarise(MaxRating = max(Rating))
+
+min.max <- df %>%
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched, names_to = "type", values_to = "Rating") %>%
+  group_by(SubjectCode)%>%
+  summarise(MinRating = min(Rating, na.rm = T),
+            MaxRating = max(Rating, na.rm = T))
+  
+df.norm <- df %>%
+  left_join(., min.max) %>%
+  mutate(normSP = (Sweetness_pinched - MinRating)/MaxRating,
+         normSU = (Sweetness_unpinched - MinRating)/MaxRating,
+         normDelta = normSU - normSP)
+```
+# ANOVA
+
+```{r}
+anova2 <- aov(normSU ~ SubjectCode*SampleName, data = df.norm)
+summary(anova2)
+plot(anova2)
+TukeyHSD(anova2)
+```
+# Plot normalized data
+```{r}
+df.norm %>%
+  #group_by(SampleName, Date)%>%
+  group_by(SampleName)%>%
+  summarise(Pinched_mean = mean(normSP),
+            Pinched_SD = sd(normSP),
+            Unpinched_mean = mean(normSU),
+            Unpinched_SD = sd(normSU))%>%
+  pivot_longer(Pinched_mean:Unpinched_SD,
+               names_to = "NosePinch",
+               values_to = "Rating")%>%
+separate(NosePinch, into = c("NosePinch", "ValueType"), sep = "_")%>%
+  pivot_wider(names_from = ValueType, values_from = Rating)%>%
+  ggplot( aes(reorder(SampleName, mean), mean, color = NosePinch, shape = NosePinch))+
+    geom_point()+
+  geom_errorbar(aes(ymin = mean - SD, ymax = mean +SD))+
+  #facet_wrap(~Date)+
+    ylim(0,1)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+df.norm %>%
+  filter(SubjectCode != 1008)%>% #this person gives very dramatic rating swings
+  mutate(Delta = Sweetness_unpinched - Sweetness_pinched)%>%
+  group_by(SampleName)%>%
+  summarise(meanDelta = mean(normDelta),
+            seDelta = sd(normDelta)/sqrt(n()))%>%
+  mutate(SEVrank = rank(-meanDelta))%>%
+  arrange(SEVrank)
+
+df.norm %>%
+  filter(SubjectCode != 1008)%>% #this person gives very dramatic rating swings
+  group_by(SampleName)%>%
+  summarise(meanDelta = mean(normDelta),
+            seDelta = sd(normDelta)/sqrt(n()))%>%
+    ggplot( aes(reorder(SampleName, meanDelta), meanDelta))+
+    geom_point()+
+      geom_errorbar(aes(ymin = meanDelta - seDelta, ymax = meanDelta + seDelta))+
+  geom_hline( yintercept = -0.0207 + 0.0343, color = "royalblue")+
+    ylim(-0.2,1)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Normalized TRT
+```{r}
+trt <- df.norm %>%
+  separate(SampleName, into = c("Code", "Name"), sep = " ") %>%
+  mutate(Rep = case_when(Name == 2 ~ 2,
+                         TRUE ~ 1), 
+         .after = "Code") %>%
+  select(SubjectCode, Code, Rep, normSP, normSU)%>%
+  pivot_longer(normSP:normSU, names_to = "Type", values_to = "Rating")%>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = Rating)%>%
+  drop_na(Rep2) %>%
+  filter(Rep1 != "NULL")%>%
+  group_by(SubjectCode)%>%
+  summarise(TRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
+
+df.norm %>%
+   separate(SampleName, into = c("Code", "Name"), sep = " ") %>%
+  mutate(Rep = case_when(Name == 2 ~ 2,
+                         TRUE ~ 1), 
+         .after = "Code") %>%
+  select(SubjectCode, Code, Rep, normSP, normSU)%>%
+  pivot_longer(normSP:normSU, names_to = "Type", values_to = "Rating")%>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = Rating)%>%
+  drop_na(Rep2) %>%
+  filter(Rep1 != "NULL")%>%
+  ggplot( )+
+  geom_point( aes(as.numeric(Rep1), as.numeric(Rep2), color = Type))+
+  geom_text(data = trt, aes(x = 0.2, y = 0.8, label = paste("R=", round(TRT,2))), color="red")+
+  facet_wrap(~as.factor(SubjectCode))
+```
+
+
+# Mixture comparison
+
+```{r}
+df.norm %>%
+  filter(SampleName %in% c("Top3 [Study]", "Top3 [Nature]", "Top6 [Nature]", "Top12 [Nature]"))%>%
+  mutate(SampleName = factor(SampleName,
+                             levels = c("Top3 [Study]", "Top3 [Nature]", "Top6 [Nature]", "Top12 [Nature]")))%>%
+  ggplot( aes(SampleName, normSU))+
+    geom_violin(draw_quantiles = c(0.5))+
+  geom_jitter()+
+    ylim(0,1)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+

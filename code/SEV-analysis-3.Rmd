@@ -1,0 +1,558 @@
+---
+title: "SEV-analysis-3"
+author: "A DuBois"
+date: "5/2/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages
+
+```{r packages}
+library(tidyverse)
+library(lubridate)
+library(readxl)
+library(purrr)
+library(FactoMineR)
+library(webchem)
+library(viridis)
+library(plotly)
+library(htmlwidgets)
+library(forcats)
+```
+
+
+# Read in screening and test data
+
+```{r read & clean data}
+
+#read in and combine screening data
+scrn.df <- read_excel("data/Sweet_solutions_-_Session_1_screener_-_Raw_Data.xlsx", sheet = 3) %>%
+  bind_rows(read_excel("data/Sweet_solutions_-_Anonymous_online_session_1_screener_-_Raw_Data.xlsx", sheet = 3)) %>%
+  
+  mutate(`Subject Code` = case_when(`Participant Name` %in% c("1001", "1002", "1003", "1006", "1008", "1011", "1012", "1014", "1015", "1017") ~ as.numeric(`Participant Name`) + 100,
+                                      TRUE ~ `Subject Code`)) %>%
+  
+  transmute(SubjectCode = `Subject Code`,
+            SampleIdentifier = `Sample Identifier`,
+            SampleName = `Sample Name`,
+            Rating = `Please take a sip of sample {{sample_code}} and rate the sweetness intensity of the beverage using the scale below.`,
+            Date = mdy_hms(`Start Time (UTC)`)) %>%
+  
+  separate(SampleName, into = c("Concentration", "Rep"), sep = " g/L ") %>%
+  drop_na(Rating)
+
+#read in and combine test data
+test.df <- read_excel("data/Sweet_solutions_-_Session_2_test_-_Raw_Data.xlsx", sheet = 3) %>%
+  bind_rows(read_excel("data/Sweet_solutions_-_Session_3_test_-_Raw_Data.xlsx", sheet = 3)) %>%
+  bind_rows(read_excel("data/Sweet_solutions_-_Session_4_test_-_Raw_Data.xlsx", sheet = 3)) %>%
+
+  #rename and select columns
+  transmute(Date = mdy_hms(`Start Time (UTC)`),
+            SubjectCode = `Subject Code`,
+            SampleIdentifier = `Sample Identifier`,
+            SampleName = `Sample Name`,
+            Sweetness_pinched = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness with nose pinched.`,
+            Sweetness_unpinched = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness without nose pinched.`) %>%
+    filter(SampleIdentifier != "TS",
+           SampleName != "Test Strip")
+
+#Bitterness = `Remove the paper strip from the sample cup labeled {{sample_code}}, place the strip on your tongue, and rate the intensity of bitterness  perceived.`
+  
+ # create a new column for the replicate numbers with the default number of 1
+test.df$Rep <- 1
+
+test.df <- test.df %>%
+  relocate(Rep, .after = SampleName)
+
+#find replicate numbers within sample names and change the number in the rep column to match the sample name rep number in that row
+test.df[grep(x=test.df$SampleName, pattern = " 2$"),]$Rep <- 2
+test.df[grep(x=test.df$SampleName, pattern = " 3$"),]$Rep <- 3
+test.df[grep(x=test.df$SampleName, pattern = " 4$"),]$Rep <- 4
+test.df[grep(x=test.df$SampleName, pattern = " 5$"),]$Rep <- 5
+
+#remove the replicate number from each sample name
+test.df$SampleName <- gsub(x = test.df$SampleName, pattern = " [1-5]$",replacement = "") 
+```
+
+```{r create a new data frame with delta of each rating, means and SE delta per sample}
+#create a copy of the raw data frame to alter
+df<- test.df
+
+#find delta & SE of each compound, merge delta and SE columns into df1
+df<- df %>%
+  mutate(Delta = Sweetness_unpinched - Sweetness_pinched) %>%
+  group_by(SampleName, Rep) %>% 
+  summarise(meanDelta = mean(Delta), 
+            seDelta = sd(Delta)/sqrt(n()))
+  
+df1<-  full_join(test.df, df) %>%
+   mutate(Delta = Sweetness_unpinched - Sweetness_pinched,
+          Date1 = date(Date)) %>%
+   select(-SampleIdentifier) %>%
+   relocate(Delta, .before = meanDelta)
+
+df1$Date1 <- as.factor(df1$Date1)
+
+
+#df1$SubjectCode <- as.factor(df1$SubjectCode)
+  
+#res.aov <- aov(Delta ~ SampleName*SubjectCode, data = df1)
+#summary.aov(res.aov)
+
+```
+
+# Test-retest
+```{r TRTs}
+#TRT of Sweetness_unpinched
+SU.trt <- df1 %>%
+  select(SubjectCode, SampleName, Rep, Sweetness_unpinched)%>%
+  filter(Rep != 3,
+         Rep != 4,
+         Rep != 5) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = Sweetness_unpinched) %>%
+  drop_na(Rep2) %>%
+  drop_na(Rep1) %>%
+  group_by(SubjectCode)%>%
+  summarise(TRTsu = cor(as.numeric(Rep1), as.numeric(Rep2)))
+
+#TRT of Sweetness_pinched
+SP.trt <- df1 %>%
+  select(SubjectCode, SampleName, Rep, Sweetness_pinched)%>%
+  filter(Rep != 3,
+         Rep != 4,
+         Rep != 5) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = Sweetness_pinched) %>%
+  drop_na(Rep2) %>%
+  drop_na(Rep1) %>%
+  group_by(SubjectCode)%>%
+  summarise(TRTsp = cor(as.numeric(Rep1), as.numeric(Rep2)))
+
+trt.all <- full_join(SU.trt, SP.trt)
+
+```
+
+#plot TRTs
+
+```{r trt plots by subject}
+df1 %>%
+  select(
+    #Date1, 
+    SubjectCode, SampleName, Rep, Sweetness_unpinched, Sweetness_pinched) %>%
+  filter(Rep != 3,
+         Rep != 4,
+         Rep != 5) %>%
+  filter(SubjectCode == 1106) %>%
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched, names_to = "Type", values_to = "Rating") %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = Rating) %>%
+  drop_na(Rep2) %>%
+  drop_na(Rep1) %>%
+
+  ggplot(aes(as.numeric(Rep1), as.numeric(Rep2), color = SampleName, shape = Type)) +
+  geom_point() +
+    ylim(0,100)+
+    xlim(0,100)+
+  geom_abline(intercept = 0, slope = + 1, color="black", size=0.5) +
+  ggtitle("Subject 1106")
+
+  ggsave("plots/trt.bySubject/1106trt.png", height = 5, width = 7)
+  #facet_wrap(~as.factor(SubjectCode))
+
+```
+
+#Plots - Ratings by Date
+
+``` {r plot ratings by date for each molecule}
+
+#ratings by date for each molecule
+df1 %>%
+  group_by(SubjectCode, Date1) %>%
+  filter(SubjectCode != 1001, # These individuals only completed samples on 1 day
+          SubjectCode != 1002,      
+          SubjectCode != 1034,
+          SubjectCode != 1101,
+          SubjectCode != 1106) %>%
+  filter(SampleName == "Sugar Water") %>%
+  #group_by(SampleName, Date1) %>%
+  summarise(Pinched_mean = mean(Sweetness_pinched),
+            Pinched_SE = sd(Sweetness_pinched)/sqrt(n()),
+            Unpinched_mean = mean(Sweetness_unpinched),
+            Unpinched_SE = sd(Sweetness_unpinched)/sqrt(n())) %>%
+  pivot_longer(Pinched_mean:Unpinched_SE,
+               names_to = "NosePinch",
+               values_to = "Rating") %>%
+separate(NosePinch, into = c("NosePinch", "ValueType"), sep = "_") %>%
+  pivot_wider(names_from = ValueType, values_from = Rating) %>%
+
+  ggplot(aes(Date1, mean, color = NosePinch)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = mean - SE, ymax = mean + SE)) +
+    ylim(0,75) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    facet_wrap(~SubjectCode) +
+  ggtitle("Ratings by Date - Sugar Water")
+
+
+ggsave("plots/DateRatings.byMolecule/meanRatingsByDate.SugarWater.png")
+
+
+## sugar water 25 g/L across all sessions
+
+sug.df <- full_join(df2, df3) %>%
+   filter(SubjectCode != 1001,
+         SubjectCode != 1002, #these individuals only completed samples on 1 day
+         SubjectCode != 1003,
+         SubjectCode != 1009,
+         SubjectCode != 1017,
+         SubjectCode != 1019,
+         SubjectCode != 1026,
+         SubjectCode != 1030,
+         SubjectCode != 1034,
+         SubjectCode != 1039,
+         SubjectCode != 1040,
+         SubjectCode != 1043,
+         SubjectCode != 1046,
+         SubjectCode != 1101,
+         SubjectCode != 1102,
+         SubjectCode != 1106,
+         SubjectCode != 1108,
+         SubjectCode != 1111,
+         SubjectCode != 1112,
+         SubjectCode != 1114,
+         SubjectCode != 1115,
+         SubjectCode != 1117) %>%
+  filter(SampleName %in% c("Sugar Water", "25")) %>%
+  group_by(SubjectCode, Date1)
+
+sug.df$Date1 <- as.Date(sug.df$Date1)
+
+sug.df %>%
+  ggplot(aes(Date1, Rating)) +
+  geom_point(aes(color = Type)) +
+  geom_smooth(method = "lm", size = 0.5, color = "darkgrey") +
+  scale_color_manual(values = c("#5FAD56", "#F2C14E")) +
+  #ylim(0,100) +
+  facet_wrap(~SubjectCode) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Sugar Water Ratings by Date")
+
+ggsave("plots/sugwaterALLSESSIONS.SubjectFacet.png", height = 10, width = 14)
+  
+
+```
+
+```{r plot ratings by date for each subject - violin}
+
+#ratings by date for each subject - violin
+df1 %>%
+  filter(SubjectCode == 1045) %>%
+  group_by(SampleName, Date1) %>%
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched,
+               names_to = "NosePinch",
+               values_to = "Rating") %>%
+separate(NosePinch, into = c("NosePinch", "Type"), sep = "_") %>%
+ # pivot_wider(names_from = Type, values_from = Rating) %>%
+  ggplot( aes(Date1, Rating, color = Type)) +
+    geom_violin() +
+  geom_jitter(alpha = 0.2) +
+  ylim(0,100) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+
+  ggtitle("Subject 1045 - Sweetness Ratings by Date")
+ggsave("plots/DateRatings.bySubject/1045-RatingsByDate.png")
+
+```
+
+```{r plot mean ratings by date for each subject - point}
+
+#ratings by date for each subject - point
+df1 %>%
+  filter(SubjectCode == 1103) %>%
+  group_by(Date1, SubjectCode) %>%
+  summarise(Pinched_mean = mean(Sweetness_pinched),
+            Pinched_SE = sd(Sweetness_pinched)/sqrt(n()),
+            Unpinched_mean = mean(Sweetness_unpinched),
+            Unpinched_SE = sd(Sweetness_unpinched)/sqrt(n())) %>%
+  pivot_longer(Pinched_mean:Unpinched_SE,
+               names_to = "NosePinch",
+               values_to = "Rating") %>%
+separate(NosePinch, into = c("NosePinch", "ValueType"), sep = "_") %>%
+  pivot_wider(names_from = ValueType, values_from = Rating) %>%
+  
+  ggplot(aes(Date1, mean, color = NosePinch)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = mean - SE, ymax = mean + SE)) +
+  ylim(0,75) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+ facet_wrap(~SubjectCode) +
+  ggtitle("1103 Ratings by Date")
+ggsave("plots/DateRatings.bySubject/1103byDate.png")
+```
+
+# Min Max Scale Use Plots
+```{r min max scale usage}
+
+df2 <- scrn.df %>%
+  transmute(SubjectCode = SubjectCode,
+            SampleName = Concentration,
+            Date1 = date(Date),
+            Rating = Rating,
+            Type = "Sweetness_unpinched",
+            Rep = Rep)
+
+df2$Date1 <- as.factor(df2$Date1)
+df2$Rep <- as.character(df2$Rep)
+
+df3<- df1 %>%
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched, names_to = "Type", values_to = "Rating")
+
+df3$Rep <- as.character(df3$Rep)
+
+min.maxfull<- full_join(df2, df3 ) %>%
+  group_by(SubjectCode, Date1) %>%
+  summarise(Min = min(Rating, na.rm = T),
+            Max = max(Rating, na.rm = T)) %>%
+  pivot_longer(Min:Max, names_to = "Type", 
+              values_to = "Rating")
+  
+#plot min and max by date, including screener min/max, subjectfacet
+min.maxfull %>%  
+  filter(SubjectCode != 1001,
+         SubjectCode != 1002, #these individuals only completed samples on 1 day
+         SubjectCode != 1003,
+         SubjectCode != 1009,
+         SubjectCode != 1017,
+         SubjectCode != 1019,
+         SubjectCode != 1026,
+         SubjectCode != 1030,
+         SubjectCode != 1034,
+         SubjectCode != 1039,
+         SubjectCode != 1040,
+         SubjectCode != 1043,
+         SubjectCode != 1046,
+         SubjectCode != 1101,
+         SubjectCode != 1102,
+         SubjectCode != 1106,
+         SubjectCode != 1108,
+         SubjectCode != 1111,
+         SubjectCode != 1112,
+         SubjectCode != 1114,
+         SubjectCode != 1115,
+         SubjectCode != 1117) %>%
+  ggplot(aes(Date1, Rating, color = Type)) +
+  geom_point() +
+  ylim(0,100) +
+  facet_wrap(~SubjectCode) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Min and Max Ratings by Date")
+
+ggsave("plots/MinMaxALLSESSIONS.SubjectFacet.png", height = 10, width = 14)
+
+min.max<- df1 %>%
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched, names_to = "Type", values_to = "Rating") %>%
+  group_by(SubjectCode, Date1) %>%
+  summarise(Min = min(Rating, na.rm = T),
+            Max = max(Rating, na.rm = T)) %>%
+  pivot_longer(Min:Max, names_to = "Type", 
+              values_to = "Rating")
+
+min.max %>%  
+  filter(SubjectCode != 1001,
+         SubjectCode != 1002, #these individuals only completed samples on 1 day of sessions 2, 3, or 4
+         SubjectCode != 1034,
+         SubjectCode != 1101,
+         SubjectCode != 1106) %>%
+  ggplot(aes(Date1, Rating, color = Type)) +
+  geom_point() +
+  ylim(0,100) +
+  facet_wrap(~SubjectCode) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Min and Max Ratings by Date")
+
+ggsave("plots/MinMaxByDate.TestSessions.SubjectFacet.png", height = 10, width = 14)
+
+```
+
+#Pinched vs Unpinched Rating Plots
+``` {r plots to investigate variability in pinched ratings}
+#look at both pinched and unpinched for each subject
+df1 %>%
+  filter(SubjectCode == 1008 | SubjectCode == 1044 | SubjectCode == 1020 | SubjectCode == 1028) %>%
+  pivot_longer(Sweetness_pinched:Sweetness_unpinched,
+               names_to = "NosePinch",
+               values_to = "Rating") %>%
+  
+  ggplot( aes(SampleName, Rating, color = NosePinch)) +
+    geom_point() +
+    facet_wrap(~SubjectCode) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Pinched vs Unpinched Ratings")
+
+ggsave("plots/OverallRatings.bySubject1008.1044.1020.1028.png", height = 10, width = 14)
+
+df1$Rep <- as.character(df1$Rep)
+
+#look at pinch only
+df1 %>%
+  #filter(SubjectCode == 1008 | SubjectCode == 1044 | SubjectCode == 1020 | SubjectCode == 1028) %>%
+  ggplot( aes(fct_reorder(SampleName, Sweetness_pinched), Sweetness_pinched, color = Rep)) +
+    geom_boxplot() +
+  #  facet_wrap(~SubjectCode) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Pinched Ratings")
+
+ggsave("plots/PinchedRatings.bySample.png", height = 10, width = 14)
+
+#look at meanDelta
+df1  %>% 
+  group_by(SampleName) %>% 
+  summarise(meanDelta, seDelta) %>% 
+  
+  ggplot( aes(fct_reorder(SampleName, meanDelta), meanDelta)) +
+    geom_point()+
+    geom_errorbar(aes(ymin = meanDelta - seDelta, ymax = meanDelta + seDelta)) +
+    geom_hline( yintercept = 0.49, color = "royalblue") + #0.49 is the mean + SE of sugar water
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+ggsave("plots/meanDelta.BySample.png", height = 10, width = 14)
+
+```
+
+#plotting molecule rankings
+```{r molecule rankings}
+
+# meanDelta rank of each molecule
+rankD <- df1 %>%
+  subset(select = c(SubjectCode, SampleName, Delta, Rep)) %>%
+  group_by(SampleName, SubjectCode) %>%
+  summarise(meanDelta = mean(Delta)) %>%
+  group_by(SubjectCode) %>%
+  mutate(SEVrank = rank(desc(meanDelta), ties.method = "min")) %>%
+  arrange(SEVrank) #%>%
+  #pivot_wider(names_from = SubjectCode, values_from = SampleName)
+
+rankD2 <- rankD %>% 
+  group_by(SEVrank) %>% 
+  count(SampleName) %>%
+  mutate(text1 = paste0("Sample: ", SampleName, "\n", "Rank: ", SEVrank, "\n", "Count: ", n, "\n")) %>%
+  group_by(SampleName) %>%
+  complete(SEVrank = 1:36) %>%
+  replace_na(list(n = 0, text1 = "Sample not placed at this rank"))
+  #pivot_wider(names_from = SEVrank, values_from = n)
+
+rankD2$SEVrank <- as.numeric(rankD2$SEVrank)
+
+rank.p <- 
+  rankD2 %>%
+  arrange(n) %>% 
+  ggplot(aes(SEVrank, SampleName, fill= n, text = text1)) + 
+  geom_tile() +
+  scale_fill_viridis("Count", discrete=FALSE, direction = -1) +
+  xlim(1, 36) +
+  theme_minimal () +
+  labs(title = "Molecules Ranked By Highest Change in Pinched/Unpinched Rating") +
+  xlab("Rank") +
+  ylab(NULL) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank())
+
+delta.w<- ggplotly(rank.p, tooltip = "text1")
+
+saveWidget(delta.w, "plots/Widgets/DeltaRank.HeatmapWidget.html", selfcontained = TRUE)
+
+
+#mean upinched rank of each molecule
+rankUP <- df1 %>%
+  subset(select = c(SubjectCode, SampleName, Sweetness_unpinched)) %>%
+  group_by(SampleName, SubjectCode) %>%
+  summarise(meanUP = mean(Sweetness_unpinched)) %>%
+  group_by(SubjectCode) %>%
+  mutate(SEVrank = rank(desc(meanUP), ties.method = "min")) %>%
+  arrange(SEVrank)
+
+rankUP2 <- rankUP %>%
+  group_by(SEVrank) %>% 
+  count(SampleName) %>%
+  mutate(text1 = paste0("Sample: ", SampleName, "\n", "Rank: ", SEVrank, "\n", "Count: ", n, "\n")) %>%
+  group_by(SampleName) %>%
+  complete(SEVrank = 1:36) %>%
+  replace_na(list(n = 0, text1 = "Sample not placed at this rank"))
+  #pivot_wider(names_from = SEVrank, values_from = n)
+
+rankUP2$SEVrank <- as.numeric(rankUP2$SEVrank)
+
+rank2.p <- 
+  rankUP2 %>%
+  arrange(n) %>% 
+  ggplot(aes(SEVrank, SampleName, fill= n, text = text1)) + 
+  geom_tile() +
+  scale_fill_viridis("Count", discrete=FALSE, direction = -1) +
+  xlim(1, 36) +
+  theme_minimal () +
+  labs(title = "Molecules Ranked by Highest Sweetness Unpinched Rating") +
+  xlab("Rank") +
+  ylab(NULL) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank())
+
+UP.w <- ggplotly(rank2.p, tooltip = "text1")
+
+saveWidget(UP.w, "plots/Widgets/UPrank.HeatmapWidget.html", selfcontained = TRUE)
+
+
+# meanDelta rank of each molecule per panelist
+rankD3 <- rankD %>% 
+  group_by(SEVrank) %>% 
+  mutate(text1 = paste0("Subject: ", SubjectCode, "\n", "Sample: ", SampleName, "\n", "Rank: ", SEVrank, "\n")) %>%
+  group_by(SampleName)
+
+rankD3$SEVrank <- as.numeric(rankD3$SEVrank)
+rankD3$SubjectCode <- as.factor(rankD3$SubjectCode)
+
+rank.p3 <- 
+  rankD3 %>%
+  filter(SubjectCode != 1001, #incomplete datasets
+         SubjectCode != 1002,
+         SubjectCode != 1034, 
+         SubjectCode != 1041,
+         SubjectCode != 1101,
+         SubjectCode != 1106) %>%
+  ggplot(aes(SubjectCode, SampleName, fill= SEVrank, text = text1)) + 
+  geom_tile() +
+  scale_fill_viridis("Rank", discrete=FALSE) +
+  theme_minimal () +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  labs(title = "Molecules Ranked By Highest Change in Pinched/Unpinched Rating \n by Each Subject", x = "Subject", y = NULL) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank())
+
+delta2.w<- ggplotly(rank.p3, tooltip = "text1")
+
+saveWidget(delta2.w, "plots/Widgets/DeltaRankBySubject.HeatmapWidget.html", selfcontained = TRUE)
+
+```
+
+#sugar water - variable scale use investigation
+
+```{r variable scale use investigation}
+SWrep.df <- df1 %>%
+  group_by(SubjectCode) %>%
+    filter(SampleName == "Sugar Water" & Rep < 5,
+        
+
+           
+           
+
+  filter(SampleName == "Sugar Water",
+         Rep != 5) %>%
+  drop_na() 
+  
+
+
+
+```
+
+
