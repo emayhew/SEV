@@ -1,0 +1,49 @@
+---
+title: "SignUps"
+author: "A DuBois"
+date: '2022-06-14'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##load packages
+```{r load packages}
+
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+
+```
+
+##read in data
+
+```{r read in data}
+
+df <- read_excel("data/Screener_Raw_Data_-_SEV2__Session_1.xlsx", sheet = 2) %>%
+  transmute(SignUp =`Where did you hear about our study?
+
+1=MSU Family listserv
+2=MSU departmental email (specify)
+3=Study flyer (specify location)
+4=Social media (specify)
+5=Friend, family, coworker, etc.
+6=Other (specify)`) #%>%
+    
+  
+  
+  #str_replace_all(c("1" = "Family Listserv", "2" = "Departmental Email", "3" = "Study Flyer", "4" = "Social Media", "5" = "Friend, Family, Coworker", "6" = "Other"))
+
+
+
+```
+
+## plot data
+
+``` {r plot}
+
+
+
+```
