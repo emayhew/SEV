@@ -1,0 +1,5 @@
+"0","#read in and combine data
+Training.df<- read_excel(""data/SEV_v2_-_Training_-_Raw_Data.xlsx"", sheet = 4) #%>%
+"
+"2","Error: `path` does not exist: ‘data/SEV_v2_-_Training_-_Raw_Data.xlsx’
+"

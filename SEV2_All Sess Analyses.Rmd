@@ -1,0 +1,51 @@
+---
+title: "Sess 1-3 Analysis"
+author: "A DuBois"
+date: '2022-06-14'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load packages
+
+```{r packages}
+library(tidyverse)
+library(readxl)
+
+```
+
+
+# Read in data
+
+```{r read & clean data}
+
+#read in and combine data
+
+#training data on remembered sensations
+Training.df<- read_excel("data/SEV_v2_-_Training_-_Raw_Data.xlsx", sheet = 4, skip = 3) %>%
+  rename(Rating = `Please mark the perceived intensity of {{sample_name}} exactly as you recorded it on your paper sheet.`)%>%
+  mutate(Session = 1)%>%
+  bind_rows(read_excel("data/SEV_v2_-_Training_refresher_for_sess_2_-_Raw_Data.xlsx", sheet = 4, skip = 3) %>%
+              rename(Rating = `Please mark the perceived intensity of {{sample_name}} on the scale below.(You may also mark them on your paper scale if you would like but it is not required.)`) %>%
+              mutate(Session = 2)) %>%
+  transmute(SubjectCode = `Participant Code`,
+            SampleName = `Sample Name`,
+            Rating,
+            Session) 
+
+
+#data on test samples - not updated yet
+sess1.df <- read_excel("data/SEV_v2_-_Session_1_-_Raw_Data.xlsx", sheet = 3) %>%
+  bind_rows(read_excel("data/SEV_v2_-_Session_2_-_Raw_Data.xlsx", sheet = 4)) %>%
+  transmute(SubjectCode = `Participant Code`,
+            SampleName = `Sample Name`,
+            Rep = `Rep`,
+            SugRating = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness only.Sweetness:  the pleasant taste sensation typically produced by sugars (such as sucrose or glucose)`,
+            FlavRating = `Please take a sip of sample {{sample_code}} and rate the intensity of flavor only.Flavor: the combined effect of taste sensations, aromas, and chemical feeling factors (e.g. burn of a chili, cooling of menthol) in the mouth.`
+            ) %>%
+  separate(SampleName, into = c("SampleCode", "Sample"), sep = ". ")
+
+```

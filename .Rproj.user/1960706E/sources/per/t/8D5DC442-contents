@@ -14,7 +14,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r packages}
 library(tidyverse)
 library(readxl)
-library(ggplot2)
 
 ```
 
@@ -24,14 +23,21 @@ library(ggplot2)
 ```{r read & clean data}
 
 #read in and combine data
-Training.df<- read_excel("data/SEV_v2_-_Training_-_Raw_Data.xlsx", sheet = 4) %>%
-  bind_rows(read_excel("data/SEV_v2_-_Training_refresher_for_sess_2_-_Raw_Data.xlsx", sheet = 4)) %>%
+
+#training data on remembered sensations
+Training.df<- read_excel("data/SEV_v2_-_Training_-_Raw_Data.xlsx", sheet = 4, skip = 3) %>%
+  rename(Rating = `Please mark the perceived intensity of {{sample_name}} exactly as you recorded it on your paper sheet.`)%>%
+  mutate(Session = 1)%>%
+  bind_rows(read_excel("data/SEV_v2_-_Training_refresher_for_sess_2_-_Raw_Data.xlsx", sheet = 4, skip = 3) %>%
+              rename(Rating = `Please mark the perceived intensity of {{sample_name}} on the scale below.(You may also mark them on your paper scale if you would like but it is not required.)`) %>%
+              mutate(Session = 2)) %>%
   transmute(SubjectCode = `Participant Code`,
             SampleName = `Sample Name`,
-            T1Rating = `Please mark the perceived intensity of {{sample_name}} exactly as you recorded it on your paper sheet.`,
-            T2Rating = `Please mark the perceived intensity of {{sample_name}}.`) 
+            Rating,
+            Session) 
 
 
+#data on test samples - not updated yet
 sess1.df <- read_excel("data/SEV_v2_-_Session_1_-_Raw_Data.xlsx", sheet = 3) %>%
   bind_rows(read_excel("data/SEV_v2_-_Session_2_-_Raw_Data.xlsx", sheet = 4)) %>%
   transmute(SubjectCode = `Participant Code`,
