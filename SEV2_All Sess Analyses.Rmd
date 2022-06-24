@@ -40,6 +40,9 @@ Training.df<- read_excel("data/SEV_v2_-_Training_-_Raw_Data.xlsx", sheet = 4, sk
 
 
 #data on test samples
+
+#the participant codes column for Session 2 are not the actual participant codes (see sheet 3 for those)
+#I planned to either write code or manually adjust the participant codes after everyone has completed Session 2
 df <- read_excel("data/SEV_v2_-_Session_1_-_Raw_Data.xlsx", sheet = 3, skip = 3) %>%
   bind_rows(read_excel("data/SEV_v2_-_Session_2_-_Raw_Data.xlsx", sheet = 4, skip = 3)) %>%
   transmute(SubjectCode = `Participant Code`,
@@ -48,27 +51,93 @@ df <- read_excel("data/SEV_v2_-_Session_1_-_Raw_Data.xlsx", sheet = 3, skip = 3)
             SweetRating = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness only.Sweetness:  the pleasant taste sensation typically produced by sugars (such as sucrose or glucose)`,
             FlavRating = `Please take a sip of sample {{sample_code}} and rate the intensity of flavor only.Flavor: the combined effect of taste sensations, aromas, and chemical feeling factors (e.g. burn of a chili, cooling of menthol) in the mouth.`
             ) %>%
-  separate(SampleName, into = c("SampleCode", "Sample"), sep = ". ")
+  separate(SampleName, into = c("SampleCode", "Sample"), sep = ". ") %>%
+  
+  drop_na()
 
 ```
 # plot data
 
-``` {r plotting test data}
+``` {r plotting mean test data}
 
+
+#means with SE of flavor and sweetness ratings for each sample
 df %>%
-  group_by(SampleCode)%>%
-  summarise(FlavMean = mean(FlavRating),
-            SweetMean = mean(SweetRating)) %>%
-    pivot_longer(FlavMean:SweetMean,
-               names_to = "Sensation",
-               values_to = "Rating") %>%
-  ggplot(aes(reorder(SampleCode, Rating), Rating, color = Sensation, shape = Sensation))+
+  group_by(SampleCode) %>%
+  summarise(Flavor_Mean = mean(FlavRating),
+            Sweetness_Mean = mean(SweetRating),
+            Flavor_SE = sd(FlavRating)/sqrt(n()),
+            Sweetness_SE = sd(SweetRating)/sqrt(n())) %>%
+  pivot_longer(cols = -SampleCode,
+               names_to = c("Sensation", ".value"),
+               names_pattern = "(.*)_(.*)") %>%
+ 
+  ggplot(aes(reorder(SampleCode, Mean), Mean, color = Sensation, shape = Sensation)) +
     geom_point() +
+    geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.5) +
+    geom_hline(yintercept = 15.72378, color = "tomato1") +
+    geom_hline(yintercept =  22.074507, color = "deepskyblue3") +
     ylim(0,100) +
     theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+    ggtitle("Mean Sensation Ratings of Each Sample")
 
-## SW @ 20 for sweet, 14 for flav
+ggsave("SEV2_MeanSE_FlavSweet_byCompound.png", height = 5, width = 9)
+
+## SW average = 20.47857 for sweet, 14.31243 for flav
+##SW SE = 1.595937 for sweet, 1.411350 for flav
+## upper sweet limit = 22.074507, 15.72378 or flav
+
+```
+
+#Subject TRTs
+```{r subject TRTs}
+
+####
+####
+#### THESE WILL NOT BE ACCURATE UNTIL THE PANELIST CODES BETWEEN SESSIONS 1 AND 2 ARE MATCHED TO THE APPROPRIATE SUBJECTS
+####
+####
+####
+
+#Sweetness TRTs
+trtS <- df %>%
+  filter(SampleCode != "SW") %>% #if SW is included, R makes Rep1 and Rep2 columns into lists of vectors rather than vectors because we have SW 1 and 2 that are in both sessions...I plan to find a workaround later
+  select(SubjectCode, SampleCode, Rep, SweetRating) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = SweetRating) %>%
+  group_by(SubjectCode) %>%
+  summarise(sweetTRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
+
+#Flavor TRTs
+trtF <- df %>%
+  filter(SampleCode != "SW") %>% 
+  select(SubjectCode, SampleCode, Rep, FlavRating) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = FlavRating) %>%
+  group_by(SubjectCode) %>%
+  summarise(flavorTRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
+
+#combine dataframes
+allTRTs <- left_join(trtS, trtF)
+
+#plot sweetness TRTs
+df %>%
+  filter(SampleCode != "SW") %>% #if SW is included, R makes Rep1 and Rep2 columns into lists of vectors rather than vectors because we have SW 1 and 2 that are in both sessions...I plan to find a workaround later
+  select(SubjectCode, SampleCode, Rep, SweetRating) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = SweetRating) %>%
+  group_by(SubjectCode) %>%
+  ggplot( aes(as.numeric(Rep1), as.numeric(Rep2), color = SampleCode))+
+  geom_point()+
+  facet_wrap(~as.factor(SubjectCode))
+
+#plot flavor TRTs
+df %>%
+  filter(SampleCode != "SW") %>% #if SW is included, R makes Rep1 and Rep2 columns into lists of vectors rather than vectors because we have SW 1 and 2 that are in both sessions...I plan to find a workaround later
+  select(SubjectCode, SampleCode, Rep, FlavRating) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = FlavRating) %>%
+  group_by(SubjectCode) %>%
+  ggplot( aes(as.numeric(Rep1), as.numeric(Rep2), color = SampleCode))+
+  geom_point()+
+  facet_wrap(~as.factor(SubjectCode))
 
 
 ```
