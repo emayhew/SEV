@@ -1,8 +1,0 @@
-"0","#sweet ratings by presentation order, faceted by panelist"
-"0","Sess1.df %>%"
-"0","  select(-FlavRating) %>%"
-"0","  ggplot(aes(Presentation, SweetRating)) +"
-"0","  geom_point(aes(color = SampleCode)) +"
-"0","  facet_wrap(~SubjectCode) +"
-"0","  #theme_minimal() +"
-"0","  ggtitle(""Sweet Ratings in Order of Sample Presentation"")"
