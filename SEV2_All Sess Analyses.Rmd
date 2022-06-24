@@ -38,11 +38,22 @@ Training.df<- read_excel("data/SEV_v2_-_Training_-_Raw_Data.xlsx", sheet = 4, sk
 
 
 #data on test samples - not updated yet
-sess1.df <- read_excel("data/SEV_v2_-_Session_1_-_Raw_Data.xlsx", sheet = 3) %>%
-  bind_rows(read_excel("data/SEV_v2_-_Session_2_-_Raw_Data.xlsx", sheet = 4)) %>%
+temp1 <- read_excel("data/SEV_v2_-_Session_1_-_Raw_Data.xlsx", sheet = 3, skip = 3) #%>%
+temp2<- read_excel("data/SEV_v2_-_Session_2_-_Raw_Data.xlsx", sheet = 4, skip = 3) %>%
+  transmute(TempCode = as.character(`Participant Code`),
+            SampleName = `Sample Name`,
+            Rep = `Repetition`,
+             SugRating = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness only.Sweetness:  the pleasant taste sensation typically produced by sugars (such as sucrose or glucose)`,
+            FlavRating = `Please take a sip of sample {{sample_code}} and rate the intensity of flavor only.Flavor: the combined effect of taste sensations, aromas, and chemical feeling factors (e.g. burn of a chili, cooling of menthol) in the mouth.`
+            )
+
+#not finished
+        
+
+  bind_rows(read_excel("data/SEV_v2_-_Session_2_-_Raw_Data.xlsx", sheet = 4, skip = 3)) %>%
   transmute(SubjectCode = `Participant Code`,
             SampleName = `Sample Name`,
-            Rep = `Rep`,
+            Rep = `Repetition`,
             SugRating = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness only.Sweetness:  the pleasant taste sensation typically produced by sugars (such as sucrose or glucose)`,
             FlavRating = `Please take a sip of sample {{sample_code}} and rate the intensity of flavor only.Flavor: the combined effect of taste sensations, aromas, and chemical feeling factors (e.g. burn of a chili, cooling of menthol) in the mouth.`
             ) %>%

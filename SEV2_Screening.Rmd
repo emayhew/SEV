@@ -50,7 +50,7 @@ Sess1.df <- read_excel("data/SEV_v2_-_Session_1_-_Raw_Data.xlsx", sheet = 3, ski
   filter(SubjectCode != 1130,
          SubjectCode != 1080
   )
-  
+
 Training.df$SubjectCode <- as.factor(Training.df$SubjectCode)
 
 Sess1.df$SubjectCode <- as.factor(Sess1.df$SubjectCode)
