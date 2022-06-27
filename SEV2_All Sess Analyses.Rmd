@@ -53,7 +53,10 @@ df <- read_excel("data/SEV_v2_-_Session_1_-_Raw_Data.xlsx", sheet = 3, skip = 3)
             ) %>%
   separate(SampleName, into = c("SampleCode", "Sample"), sep = ". ") %>%
   
-  drop_na()
+  drop_na() %>%
+  
+  #This is Emily's pilotting data
+  filter(SubjectCode != 1080)
 
 ```
 # plot data
