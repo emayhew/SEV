@@ -11,7 +11,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Load packages
 
-```{r packages}
+```{r load packages}
+
 library(tidyverse)
 library(readxl)
 library(ggplot2)
@@ -20,90 +21,457 @@ library(lubridate)
 ```
 
 
-# Read in data
+# Read in and clean data
 
-```{r read & clean data}
+```{r read in & clean data}
 
-#read in and combine data
+## Read in and combine data
 
-#training data on remembered sensations
+## Training data on remembered sensations
 Training.df<- read_excel("data/SEV_v2_-_Training_-_Raw_Data.xlsx", sheet = 4, skip = 3) %>%
   rename(Rating = `Please mark the perceived intensity of {{sample_name}} exactly as you recorded it on your paper sheet.`) %>%
   mutate(Session = 1) %>%
   bind_rows(read_excel("data/SEV_v2_-_Training_refresher_for_sess_2_-_Raw_Data.xlsx", sheet = 4, skip = 3) %>%
               rename(Rating = `Please mark the perceived intensity of {{sample_name}} on the scale below.(You may also mark them on your paper scale if you would like but it is not required.)`) %>%
               mutate(Session = 2)) %>%
+    bind_rows(read_excel("data/SEV_v2_-_Refresher_for_session_3_-_Raw_Data.xlsx", sheet = 4, skip = 3) %>%
+              rename(Rating = `Please mark the perceived intensity of {{sample_name}} on the scale below.(You may also mark them on your paper scale if you would like but it is not required.)`) %>%
+              mutate(Session = 3)) %>%
+  rename(SampleName = `Sample Name`) %>%
   transmute(SubjectCode = `Participant Code`,
-            SampleName = `Sample Name`,
+            SampleName,
             Rating,
-            Session) 
+            Session) %>%
+  separate(SampleName, into = c("SampleCode", "Sample"), sep = ". ", extra = "merge") %>%
+  mutate(RatingType = "Training") %>%
+  filter(!(SubjectCode %in% c(1080, 1130)))
 
 
-#data on test samples
+## Test sample data
 
-#the participant codes column for Session 2 are not the actual participant codes (see sheet 3 for those)
-#I planned to either write code or manually adjust the participant codes after everyone has completed Session 2
-df <- read_excel("data/SEV_v2_-_Session_1_-_Raw_Data.xlsx", sheet = 3, skip = 3) %>%
-  bind_rows(read_excel("data/SEV_v2_-_Session_2_-_Raw_Data.xlsx", sheet = 4, skip = 3)) %>%
-  transmute(SubjectCode = `Participant Code`,
+## Due to the way the tests were set up in RedJade, the subject code in sessions 2 and 3 do not reflect the true numbers.
+## Session data is read in separately so that subject codes can be corrected in session 2 and 3 data before data is combined.
+
+## Read Session 1 data into temporary df
+temp1 <- read_excel("data/SEV_v2_-_Session_1_-_Raw_Data.xlsx", sheet = 3, skip = 3) %>%
+ transmute(SubjectCode = `Participant Code`, 
+           SampleName = `Sample Name`,
+           Rep = `Repetition`,
+           SweetRating = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness only.Sweetness:  the pleasant taste sensation typically produced by sugars (such as sucrose or glucose)`,
+           FlavRating = `Please take a sip of sample {{sample_code}} and rate the intensity of flavor only.Flavor: the combined effect of taste sensations, aromas, and chemical feeling factors (e.g. burn of a chili, cooling of menthol) in the mouth.`,
+           ServeOrder = `Position`,
+           StartTime = `Start Time (UTC)`,
+           EndTime = `End Time (UTC)`) %>%
+  mutate(Session = 1) %>%
+  filter(!(SubjectCode %in% c(1080, 1130))) #1080 is Emily's session 1, 1130 was checking the test worked
+  
+## Read in Session 2 data into temporary df, correct subject codes
+temp2 <- read_excel("data/SEV_v2_-_Session_2_-_Raw_Data.xlsx", sheet = 4, skip = 3) %>%
+  pivot_wider(names_from = `Participant Code`, names_prefix = "Sub", values_from = `Participant Code`) %>%
+  transmute(`SubjectCode` = case_when(Sub1011 == 1011 ~ 1002,
+                                  Sub1008 == 1008 ~ 1003, 
+                                  Sub1021 == 1021 ~ 1006, 
+                                  Sub1037 == 1037 ~ 1007, 
+                                  Sub1007 == 1007 ~ 1008, 
+                                  Sub1012 == 1012 ~ 1009, 
+                                  Sub1015 == 1015 ~ 1010, 
+                                  Sub1022 == 1022 ~ 1012, 
+                                  Sub1016 == 1016 ~ 1015, 
+                                  Sub1014 == 1014 ~ 1016, 
+                                  Sub1027 == 1027 ~ 1017, 
+                                  Sub1029 == 1029 ~ 1018, 
+                                  Sub1009 == 1009 ~ 1019, 
+                                  Sub1030 == 1030 ~ 1021, 
+                                  Sub1017 == 1017 ~ 1022, 
+                                  Sub1020 == 1020 ~ 1023, 
+                                  Sub1031 == 1031 ~ 1024, 
+                                  Sub1005 == 1005 ~ 1025, 
+                                  Sub1013 == 1013 ~ 1026, 
+                                  Sub1035 == 1035 ~ 1027, 
+                                  Sub1019 == 1019 ~ 1028, 
+                                  Sub1010 == 1010 ~ 1031, 
+                                  Sub1003 == 1003 ~ 1032, 
+                                  Sub1004 == 1004 ~ 1033, 
+                                  Sub1028 == 1028 ~ 1034, 
+                                  Sub1025 == 1025 ~ 1035, 
+                                  Sub1018 == 1018 ~ 1036, 
+                                  Sub1033 == 1033 ~ 1037, 
+                                  Sub1023 == 1023 ~ 1039, 
+                                  Sub1032 == 1032 ~ 1040, 
+                                  Sub1038 == 1038 ~ 1045, 
+                                  Sub1034 == 1034 ~ 1046, 
+                                  Sub1006 == 1006 ~ 1048, 
+                                  TRUE ~ 0000),
             SampleName = `Sample Name`,
             Rep = `Repetition`,
             SweetRating = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness only.Sweetness:  the pleasant taste sensation typically produced by sugars (such as sucrose or glucose)`,
-            FlavRating = `Please take a sip of sample {{sample_code}} and rate the intensity of flavor only.Flavor: the combined effect of taste sensations, aromas, and chemical feeling factors (e.g. burn of a chili, cooling of menthol) in the mouth.`
-            ) %>%
-  separate(SampleName, into = c("SampleCode", "Sample"), sep = ". ") %>%
-  
-  drop_na() %>%
-  
-  #This is Emily's pilotting data
-  filter(SubjectCode != 1080)
+            FlavRating = `Please take a sip of sample {{sample_code}} and rate the intensity of flavor only.Flavor: the combined effect of taste sensations, aromas, and chemical feeling factors (e.g. burn of a chili, cooling of menthol) in the mouth.`,
+            ServeOrder = `Position`,
+            StartTime = `Start Time (UTC)`,
+            EndTime = `End Time (UTC)`) %>%
+  mutate(Session = 2)
+
+##### PARTICPANT CODES FOR SESSION 3 ARE NOT ACCURATE, WILL UPDATE ONCE EVERYONE HAS ATTENDED
+## Read in Session 3 data into temporary df, correct subject codes
+temp3 <- read_excel("data/SEV_v2_-_Session_3_-_Raw_Data.xlsx", sheet = 5, skip = 3) %>%
+  pivot_wider(names_from = `Participant Code`, names_prefix = "Sub", values_from = `Participant Code`) %>%
+  transmute(`SubjectCode` = case_when(Sub1021 == 1021 ~ 1002,
+                                  Sub1010 == 1010 ~ 1003, 
+                                  Sub1015 == 1015 ~ 1006, 
+                                  Sub1008 == 1008 ~ 1007, 
+                                  Sub1007 == 1007 ~ 1008, 
+                                  Sub1027 == 1027~ 1009, 
+                                  Sub1006 == 1006 ~ 1010, 
+                                  Sub1030 == 1030 ~ 1012, 
+                                  Sub1014 == 1014 ~ 1015, 
+                                  Sub1018 == 1018 ~ 1016, 
+                                  Sub1017 == 1017 ~ 1017, 
+                                  Sub1016 == 1016 ~ 1018, 
+                                  Sub1012 == 1012~ 1019, 
+                                  Sub1022 == 1022 ~ 1021, 
+                                  Sub1026 == 1026 ~ 1022, 
+                                  Sub1009 == 1009 ~ 1023, 
+                                  Sub1029 == 1029 ~ 1024, 
+                                  Sub1028 == 1028 ~ 1025, 
+                                  Sub1025 == 1025 ~ 1026, 
+                                  Sub1032 == 1032 ~ 1027, 
+                                  Sub1002 == 1002 ~ 1028, 
+                                  Sub1011 == 1011 ~ 1031, 
+                                  Sub1003 == 1003 ~ 1032, 
+                                  Sub1004 == 1004 ~ 1033, 
+                                  Sub1013 == 1013 ~ 1034, 
+                                  Sub1023 == 1023 ~ 1035, 
+                                  Sub1019 == 1019 ~ 1036, 
+                                  Sub1020 == 1020 ~ 1039, 
+                                  Sub1024 == 1024 ~ 1045, 
+                                  Sub1031 == 1031 ~ 1046, 
+                                  Sub1005 == 1005 ~ 1048, 
+                                  TRUE ~ 0000),
+            SampleName = `Sample Name`,
+            Rep = `Repetition`,
+            SweetRating = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness only.Sweetness:  the pleasant taste sensation typically produced by sugars (such as sucrose or glucose)`,
+            FlavRating = `Please take a sip of sample {{sample_code}} and rate the intensity of flavor only.Flavor: the combined effect of taste sensations, aromas, and chemical feeling factors (e.g. burn of a chili, cooling of menthol) in the mouth.`,
+            ServeOrder = `Position`,
+            StartTime = `Start Time (UTC)`,
+            EndTime = `End Time (UTC)`) %>%
+  mutate(Session = 3)
+
+
+
+
+## Combine temp dfs from each session
+df.all <- bind_rows(temp1, temp2) %>%
+  bind_rows(temp3) %>%
+  separate(SampleName, into = c("SampleCode", "Sample"), sep = ". ", extra = "merge")
+
+## Remove temp dfs
+remove(temp1)
+remove(temp2)
+remove(temp3)
+
+## Create df with only subjects who attended all 3 sessions
+df <- df.all %>%
+    filter(!(SubjectCode %in% c(1001, 1004, 1005, 1011, 1013, 1014, 1020, 1029, 1030, 1038, 1047, #completed only session 1
+                                1040, #completed only sessions 1 and 2
+                                1037  #completed only sessions 1 and 2
+                                )))
 
 ```
-# plot data
 
-``` {r plotting mean test data}
+# Plotting both sweetness and flavor data
 
+```{r plotting both sweetness and flavor data}
 
-#means with SE of flavor and sweetness ratings for each sample
+## Plot of flavor and sweetness rating means and SE for each sample
 df %>%
-  group_by(SampleCode) %>%
+  group_by(Sample) %>%
   summarise(Flavor_Mean = mean(FlavRating),
             Sweetness_Mean = mean(SweetRating),
             Flavor_SE = sd(FlavRating)/sqrt(n()),
             Sweetness_SE = sd(SweetRating)/sqrt(n())) %>%
-  pivot_longer(cols = -SampleCode,
+  pivot_longer(cols = -Sample,
                names_to = c("Sensation", ".value"),
                names_pattern = "(.*)_(.*)") %>%
  
-  ggplot(aes(reorder(SampleCode, Mean), Mean, color = Sensation, shape = Sensation)) +
+  ggplot(aes(reorder(Sample, Mean), Mean, color = Sensation, shape = Sensation)) +
     geom_point() +
     geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.5) +
-    geom_hline(yintercept = 15.72378, color = "tomato1") +
-    geom_hline(yintercept =  22.074507, color = "deepskyblue3") +
+    geom_hline(yintercept = 12.295731, color = "tomato1") +
+    geom_hline(yintercept =  18.571098, color = "deepskyblue3") +
     ylim(0,100) +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))+
     ggtitle("Mean Sensation Ratings of Each Sample")
 
-ggsave("SEV2_MeanSE_FlavSweet_byCompound.png", height = 5, width = 9)
+ggsave("plots/SEV2/SEV2_MeanSE_FlavSweet_bySample.png", height = 5, width = 9)
 
-## SW average = 20.47857 for sweet, 14.31243 for flav
-##SW SE = 1.595937 for sweet, 1.411350 for flav
-## upper sweet limit = 22.074507, 15.72378 or flav
+
+## Sweetness and flavor rating means and SE for mixture samples only
+df %>%
+  filter(SampleCode %in% c("MIX1", "MIX2", "MIX3", "MIX4", "MIX5", "MIX6", "MIX7", "SW")) %>%
+  group_by(Sample) %>%
+  summarise(Flavor_Mean = mean(FlavRating),
+            Sweetness_Mean = mean(SweetRating),
+            Flavor_SE = sd(FlavRating)/sqrt(n()),
+            Sweetness_SE = sd(SweetRating)/sqrt(n())) %>%
+  pivot_longer(cols = -Sample,
+               names_to = c("Sensation", ".value"),
+               names_pattern = "(.*)_(.*)") %>%
+  
+  ggplot(aes(Sample, Mean, color = Sensation, shape = Sensation)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.5) +
+    geom_hline(yintercept = 12.295731, color = "tomato1") +
+    geom_hline(yintercept =  18.571098, color = "deepskyblue3") +
+    ylim(0,100) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ggtitle("Mean Sensation Ratings of Mixture Samples")
+
+ggsave("plots/SEV2/SEV2_MeanSE_FlavSweet_MixtureSamplesOnly.png", height = 5, width = 9)
 
 ```
 
-#Subject TRTs
+
+# Plotting sweetness data
+
+``` {r plotting sweetness data}
+
+## Plot of sweetness means and SE for each sample
+df %>%
+  group_by(Sample) %>%
+  summarise(Sweetness_Mean = mean(SweetRating),
+            Sweetness_SE = sd(SweetRating)/sqrt(n())) %>%
+ 
+  ggplot(aes(reorder(Sample, Sweetness_Mean), Sweetness_Mean)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = Sweetness_Mean - Sweetness_SE, ymax = Sweetness_Mean + Sweetness_SE), width = 0.5) +
+    geom_hline(yintercept =  18.571098, color = "deepskyblue3") +
+    ylim(0,100) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ggtitle("Mean Sweetness Ratings of Each Sample")
+
+ggsave("plots/SEV2/SEV2_MeanSE_Sweetness_bySample.png", height = 5, width = 9)
+
+## Plot sweetness ratings for mixture samples only
+df %>%
+  filter(SampleCode %in% c("MIX1", "MIX2", "MIX3", "MIX4", "MIX5", "MIX6", "MIX7", "SW")) %>%
+  group_by(Sample) %>%
+  summarise(Sweetness_Mean = mean(SweetRating),
+            Sweetness_SE = sd(SweetRating)/sqrt(n())) %>%
+  
+  ggplot(aes(reorder(Sample, Sweetness_Mean), Sweetness_Mean)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = Sweetness_Mean - Sweetness_SE, ymax = Sweetness_Mean + Sweetness_SE), width = 0.5) +
+    geom_hline(yintercept =  18.571098, color = "deepskyblue3") +
+    ylim(0,100) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ggtitle("Mean Sweetness Ratings of Mixtures")
+
+ggsave("plots/SEV2/SEV2_MeanSE_Sweetness_MixturesOnly.png", height = 5, width = 9)
+
+```
+
+# Plotting flavor data
+```{r plotting flavor data}
+
+## Plot of flavor means and SE for each sample
+df %>%
+  group_by(Sample) %>%
+  summarise(Flavor_Mean = mean(FlavRating),
+            Flavor_SE = sd(FlavRating)/sqrt(n())) %>%
+ 
+  ggplot(aes(reorder(Sample, Flavor_Mean), Flavor_Mean)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = Flavor_Mean - Flavor_SE, ymax = Flavor_Mean + Flavor_SE), width = 0.5) +
+    geom_hline(yintercept =  12.295731, color = "tomato1") +
+    ylim(0,100) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ggtitle("Mean Flavor Ratings of Each Sample")
+
+ggsave("plots/SEV2/SEV2_MeanSE_Flavor_bySample.png", height = 5, width = 9)
+
+## Plot flavor ratings for mixture samples only
+df %>%
+  filter(SampleCode %in% c("MIX1", "MIX2", "MIX3", "MIX4", "MIX5", "MIX6", "MIX7", "SW")) %>%
+  group_by(Sample) %>%
+  summarise(Flavor_Mean = mean(FlavRating),
+            Flavor_SE = sd(FlavRating)/sqrt(n())) %>%
+  
+  ggplot(aes(reorder(Sample, Flavor_Mean), Flavor_Mean)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = Flavor_Mean - Flavor_SE, ymax = Flavor_Mean + Flavor_SE), width = 0.5) +
+    geom_hline(yintercept =  12.295731, color = "tomato1") +
+    ylim(0,100) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ggtitle("Mean Flavor Ratings of Mixtures")
+
+ggsave("plots/SEV2/SEV2_MeanSE_Flavor_MixturesOnly.png", height = 5, width = 9)
+
+```
+
+
+# Subject Performance
+## data faceted by subject
+```{r data faceted by subject}
+## Flavor and sweetness rating means for each sample, facet by Subject
+df %>%
+  group_by(SubjectCode, Sample) %>%
+  summarise(Flavor_Mean = mean(FlavRating),
+            Sweetness_Mean = mean(SweetRating),
+            Flavor_SE = sd(FlavRating)/sqrt(n()),
+            Sweetness_SE = sd(SweetRating)/sqrt(n())) %>%
+  pivot_longer(cols = -c(SubjectCode, Sample),
+               names_to = c("Sensation", ".value"),
+               names_pattern = "(.*)_(.*)") %>%
+
+  ggplot(aes(reorder(Sample, Mean), Mean, color = Sensation, shape = Sensation)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.5) +
+    #geom_hline(yintercept = 13.802039, color = "tomato1") +
+    #geom_hline(yintercept =  20.98265, color = "deepskyblue3") +
+    ylim(0,100) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    facet_wrap(~SubjectCode) +
+    ggtitle("Mean Sensation Ratings of Each Sample")
+
+ggsave("plots/SEV2/SEV2_MeanSE_FlavSweet_SubjectFacet.png", height = 5, width = 9)
+
+
+## Plot sweetness means and SE facet by Subject
+df %>%
+  group_by(SubjectCode, Sample) %>%
+  summarise(Sweetness_Mean = mean(SweetRating),
+           Sweetness_SE = sd(SweetRating)/sqrt(n())) %>%
+
+  ggplot(aes(reorder(Sample, Sweetness_Mean), Sweetness_Mean, color = Sample)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = Sweetness_Mean - Sweetness_SE, ymax = Sweetness_Mean + Sweetness_SE), width = 0.5) +
+    ylim(0,100) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    facet_wrap(~SubjectCode) +
+    ggtitle("Mean Sweetness Ratings of Each Sample")
+
+ggsave("plots/SEV2/SEV2_MeanSE_Sweetness_SubjectFacet.png", height = 5, width = 9)
+
+
+## Plot flavor means and SE facet by Subject
+df %>%
+  group_by(SubjectCode, Sample) %>%
+  summarise(Flavor_Mean = mean(FlavRating),
+            Flavor_SE = sd(FlavRating)/sqrt(n())) %>%
+  
+  ggplot(aes(reorder(Sample, Flavor_Mean), Flavor_Mean, color = Sample)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = Flavor_Mean - Flavor_SE, ymax = Flavor_Mean + Flavor_SE), width = 0.5) +
+    ylim(0,100) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    facet_wrap(~SubjectCode) +
+    ggtitle("Mean Flavor Ratings of Each Sample")
+
+ggsave("plots/SEV2/SEV2_MeanSE_Flavor_SubjectFacet.png", height = 5, width = 9)
+
+
+## Plot sugar water controls by subject
+df %>%
+  filter(SampleCode == "SW") %>% 
+  group_by(SubjectCode) %>%
+  summarise(Flavor_Rating = FlavRating,
+            Sweetness_Rating = SweetRating) %>%
+  pivot_longer(cols = -SubjectCode,
+               names_to = c("Sensation", ".value"),
+               names_pattern = "(.*)_(.*)") %>%
+  drop_na() %>%
+  
+  ggplot(aes(Sensation, Rating, color = Sensation, shape = Sensation)) +
+    geom_point() +
+    ylim(0,100) +
+    theme_minimal() +
+    facet_wrap(~SubjectCode) +
+    theme(axis.text.x = element_blank()) +
+    ggtitle("Sugar Water Control Ratings")
+
+ggsave("plots/SEV2/SEV2_MeanSE_FlavSweet_CtrlsOnly_SubjectFacet.png", height = 5, width = 9)
+
+## Plot training sweetness data with test data
+df2 <- df %>%
+  transmute(SubjectCode,
+            Session,
+            Sample,
+            SampleCode,
+            SweetRating #,
+            #FlavRating
+            ) %>%
+  pivot_longer(SweetRating, names_to = "RatingType", values_to = "Rating") %>%
+  bind_rows(Training.df) %>%
+  
+  #filtering out participants that did not do all 3 sessions
+    filter(!(SubjectCode %in% c(1001, 1004, 1005, 1011, 1013, 1014, 1020, 1029, 1030, 1038, 1047, # only did session 1
+                                1040, 1037 #only did sessions 1 and 2
+                                )))
+  
+df2 %>%
+  filter(!(SampleCode %in% c("A", "B", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "O", "P","Q", "R", "T", "U", "V", "W", "X", "Y"))) %>%
+  #filter(RatingType != "FlavRating") %>%
+  group_by(SubjectCode, Sample) %>%
+  summarise(Rating_Mean = mean(Rating),
+            Rating_SE = sd(Rating)/sqrt(n()),
+            RatingType) %>%
+  
+  ggplot(aes(reorder(Sample, Rating_Mean), Rating_Mean, color = Sample, shape = RatingType)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = Rating_Mean - Rating_SE, ymax = Rating_Mean + Rating_SE), width = 0.5) +
+    ylim(0,100) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    facet_wrap(~SubjectCode) +
+    ggtitle("Mean Sweet Ratings of Each Sample + Sweet Training Sensations")
+
+
+## Make data frame that shows if subjects rated samples above their "Strongest sweetness experienced"
+
+ 
+SSE.df <- df2 %>%
+  select(-Session) %>%
+  subset(SampleCode == "N") %>%
+  group_by(SubjectCode) %>%
+  mutate(StrongestSweet = mean(Rating))
+
+passfail <- left_join(SSE.df, df2, by = "SubjectCode") %>%
+    transmute(SubjectCode,
+              Session,
+              Sample = `Sample.y`,
+              SampleCode = `SampleCode.y`,
+              Rating = `Rating.y`,
+              StrongestSweet) %>%
+    filter(!(SampleCode %in% c("A", "B", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "O", "P","Q", "R", "T", "U", "V", "W", "X", "Y"))) %>%
+    mutate(PassFail = case_when(StrongestSweet < Rating ~ "Fail", TRUE ~ "Pass")) 
+
+## Make data table showing total number of times each subject rated a sample as being sweeter than their strongest sweetness experienced
+passfail.total <- passfail %>%
+  group_by(SubjectCode, PassFail) %>%
+  count() %>%
+  pivot_wider(names_from = PassFail, values_from = n) %>%
+  summarise(FailRatio = Fail/Pass,
+            PercentPass = (1-FailRatio)*100)
+
+
+
+
+
+```
+
+## subject TRTs
 ```{r subject TRTs}
 
-####
-####
-#### THESE WILL NOT BE ACCURATE UNTIL THE PANELIST CODES BETWEEN SESSIONS 1 AND 2 ARE MATCHED TO THE APPROPRIATE SUBJECTS
-####
-####
-####
-
-#Sweetness TRTs
+## Calculate Sweetness TRTs
 trtS <- df %>%
   filter(SampleCode != "SW") %>% #if SW is included, R makes Rep1 and Rep2 columns into lists of vectors rather than vectors because we have SW 1 and 2 that are in both sessions...I plan to find a workaround later
   select(SubjectCode, SampleCode, Rep, SweetRating) %>%
@@ -111,7 +479,7 @@ trtS <- df %>%
   group_by(SubjectCode) %>%
   summarise(sweetTRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
 
-#Flavor TRTs
+## Calculate Flavor TRTs
 trtF <- df %>%
   filter(SampleCode != "SW") %>% 
   select(SubjectCode, SampleCode, Rep, FlavRating) %>%
@@ -119,20 +487,22 @@ trtF <- df %>%
   group_by(SubjectCode) %>%
   summarise(flavorTRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
 
-#combine dataframes
+## Combine TRT dataframes
 allTRTs <- left_join(trtS, trtF)
 
-#plot sweetness TRTs
+## Plot sweetness TRTs
 df %>%
   filter(SampleCode != "SW") %>% #if SW is included, R makes Rep1 and Rep2 columns into lists of vectors rather than vectors because we have SW 1 and 2 that are in both sessions...I plan to find a workaround later
   select(SubjectCode, SampleCode, Rep, SweetRating) %>%
   pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = SweetRating) %>%
   group_by(SubjectCode) %>%
-  ggplot( aes(as.numeric(Rep1), as.numeric(Rep2), color = SampleCode))+
-  geom_point()+
+  ggplot( aes(as.numeric(Rep1), as.numeric(Rep2), color = SampleCode)) +
+  geom_point() +
   facet_wrap(~as.factor(SubjectCode))
 
-#plot flavor TRTs
+ggsave("plots/SEV2/SEV2_SweetnessTRTs.png", height = 5, width = 9)
+
+## Plot flavor TRTs
 df %>%
   filter(SampleCode != "SW") %>% #if SW is included, R makes Rep1 and Rep2 columns into lists of vectors rather than vectors because we have SW 1 and 2 that are in both sessions...I plan to find a workaround later
   select(SubjectCode, SampleCode, Rep, FlavRating) %>%
@@ -142,5 +512,26 @@ df %>%
   geom_point()+
   facet_wrap(~as.factor(SubjectCode))
 
-
+ggsave("plots/SEV2/SEV2_FlavorTRTs.png", height = 5, width = 9)
 ```
+
+
+# Normalizing Data
+```{r normalizing data}
+## Normalize subject data by dividing their sweetness ratings by the mean of their sugar water control per session
+
+ctrl.means <- df %>%
+  subset(SampleCode == "SW") %>%
+  group_by(SubjectCode, Session) %>%
+  mutate(sess.mean)
+  
+  SSE.df <- df2 %>%
+  select(-Session) %>%
+  subset(SampleCode == "N") %>%
+  group_by(SubjectCode) %>%
+  mutate(StrongestSweet = mean(Rating))
+ 
+  
+```
+
+
