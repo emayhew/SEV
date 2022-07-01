@@ -400,7 +400,10 @@ df %>%
 
 ggsave("plots/SEV2/SEV2_MeanSE_FlavSweet_CtrlsOnly_SubjectFacet.png", height = 5, width = 9)
 
-## Plot training sweetness data with test data
+
+
+
+## Making a new dataframe that includes both the test and training data
 df2 <- df %>%
   transmute(SubjectCode,
             Session,
@@ -417,6 +420,7 @@ df2 <- df %>%
                                 1040, 1037 #only did sessions 1 and 2
                                 )))
   
+## Plot sweetness ratings for all test samples + training ratings related to sweetness
 df2 %>%
   filter(!(SampleCode %in% c("A", "B", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "O", "P","Q", "R", "T", "U", "V", "W", "X", "Y"))) %>%
   #filter(RatingType != "FlavRating") %>%
@@ -434,36 +438,35 @@ df2 %>%
     facet_wrap(~SubjectCode) +
     ggtitle("Mean Sweet Ratings of Each Sample + Sweet Training Sensations")
 
+ggsave("plots/SEV2/SEV2_MeanSweet+SweetTraining_SubjectFacet.png", height = 10, width = 18)
 
-## Make data frame that shows if subjects rated samples above their "Strongest sweetness experienced"
-
- 
+## Make data frame of strongest sweet ratings means only
 SSE.df <- df2 %>%
   select(-Session) %>%
   subset(SampleCode == "N") %>%
   group_by(SubjectCode) %>%
-  mutate(StrongestSweet = mean(Rating))
+  mutate(StrongestSweet = mean(Rating)) %>%
+  select(-c(Rating, RatingType, SampleCode, Sample)) %>%
+  distinct()
 
-passfail <- left_join(SSE.df, df2, by = "SubjectCode") %>%
+## Make data frame that shows if subjects rated samples above their "Strongest sweetness experienced"
+passfail <- left_join(df2, SSE.df, by = "SubjectCode") %>%
     transmute(SubjectCode,
               Session,
-              Sample = `Sample.y`,
-              SampleCode = `SampleCode.y`,
-              Rating = `Rating.y`,
+              Sample,
+              SampleCode,
+              Rating,
               StrongestSweet) %>%
-    filter(!(SampleCode %in% c("A", "B", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "O", "P","Q", "R", "T", "U", "V", "W", "X", "Y"))) %>%
-    mutate(PassFail = case_when(StrongestSweet < Rating ~ "Fail", TRUE ~ "Pass")) 
+    filter(!(SampleCode %in% c("A", "B", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "N", "O", "P","Q", "R", "T", "U", "V", "W", "X", "Y"))) %>%
+    mutate(PassFail = case_when(StrongestSweet < Rating ~ "Fail", TRUE ~ "Pass"))
 
-## Make data table showing total number of times each subject rated a sample as being sweeter than their strongest sweetness experienced
+## Make data frame showing percent of the time that the subject rated samples below their "Strongest sweetness experienced"
 passfail.total <- passfail %>%
   group_by(SubjectCode, PassFail) %>%
   count() %>%
-  pivot_wider(names_from = PassFail, values_from = n) %>%
+  pivot_wider(names_from = PassFail, values_from = n, values_fill = 0) %>%
   summarise(FailRatio = Fail/Pass,
             PercentPass = (1-FailRatio)*100)
-
-
-
 
 
 ```
@@ -523,14 +526,14 @@ ggsave("plots/SEV2/SEV2_FlavorTRTs.png", height = 5, width = 9)
 ctrl.means <- df %>%
   subset(SampleCode == "SW") %>%
   group_by(SubjectCode, Session) %>%
-  mutate(sess.mean)
-  
-  SSE.df <- df2 %>%
-  select(-Session) %>%
-  subset(SampleCode == "N") %>%
-  group_by(SubjectCode) %>%
-  mutate(StrongestSweet = mean(Rating))
- 
+  select(-FlavRating) %>%
+  mutate(swSess.mean = mean(SweetRating)) %>%
+  transmute(SubjectCode,
+            swSess.mean) %>%
+  distinct()
+
+ df2 <- df2 %>%
+   mutate(left_join(df2)
   
 ```
 
