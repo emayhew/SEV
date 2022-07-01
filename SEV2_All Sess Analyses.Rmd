@@ -532,8 +532,48 @@ ctrl.means <- df %>%
             swSess.mean) %>%
   distinct()
 
- df2 <- df2 %>%
-   mutate(left_join(df2)
+ norm.df <- df2 %>%
+   left_join(ctrl.means, df2, by = c("SubjectCode" = "SubjectCode", "Session" = "Session")) %>%
+   mutate(NormRating = Rating - swSess.mean) %>%
+   filter(RatingType != "Training")
+ 
+ 
+ ## Plot sweetness means of normalized data
+ 
+ norm.df %>%
+  group_by(Sample) %>%
+  summarise(Norm_Mean = mean(NormRating),
+            Norm_SE = sd(NormRating)/sqrt(n())) %>%
+ 
+  ggplot(aes(reorder(Sample, Norm_Mean), Norm_Mean)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = Norm_Mean - Norm_SE, ymax = Norm_Mean + Norm_SE), width = 0.5) +
+    geom_hline(yintercept =  0, color = "deepskyblue3") +
+    ylim(-10,100) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ggtitle("Normalized Mean Sweetness Ratings of Each Sample")
+
+ggsave("plots/SEV2/SEV2_NormMeanSE_Sweetness_bySample.png", height = 5, width = 9)
+
+## Plot sweetness ratings for mixture samples only
+norm.df %>%
+  filter(SampleCode %in% c("MIX1", "MIX2", "MIX3", "MIX4", "MIX5", "MIX6", "MIX7", "SW")) %>%
+  group_by(Sample) %>%
+  summarise(Norm_Mean = mean(NormRating),
+            Norm_SE = sd(NormRating)/sqrt(n())) %>%
+  
+  ggplot(aes(reorder(Sample, Norm_Mean), Norm_Mean)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = Norm_Mean - Norm_SE, ymax = Norm_Mean + Norm_SE), width = 0.5) +
+   geom_hline(yintercept =  0, color = "deepskyblue3") +
+    ylim(-10,100) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ggtitle("Normalized Mean Sweetness Ratings of Mixtures")
+
+ggsave("plots/SEV2/SEV2_NormMeanSE_Sweetness_MixturesOnly.png", height = 5, width = 9)
+   
   
 ```
 
