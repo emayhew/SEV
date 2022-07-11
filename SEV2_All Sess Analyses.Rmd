@@ -17,6 +17,10 @@ library(tidyverse)
 library(readxl)
 library(ggplot2)
 library(lubridate)
+library(magrittr)
+library(ggpubr)
+library(broom)
+library(AICcmodavg)
 
 ```
 
@@ -176,6 +180,24 @@ df <- df.all %>%
                                 1037  #completed only sessions 1 and 2
                                 )))
 
+
+## Make a new dataframe that includes both the test and training data of sweetness ratings
+df2 <- df %>%
+  transmute(SubjectCode,
+            Session,
+            Sample,
+            SampleCode,
+            SweetRating #,
+            #FlavRating
+            ) %>%
+  pivot_longer(SweetRating, names_to = "RatingType", values_to = "Rating") %>%
+  bind_rows(Training.df) %>%
+  
+  #filtering out participants that did not do all 3 sessions
+    filter(!(SubjectCode %in% c(1001, 1004, 1005, 1011, 1013, 1014, 1020, 1029, 1030, 1038, 1047, # only did session 1
+                                1040, 1037 #only did sessions 1 and 2
+                                )))
+
 ```
 
 # Plotting both sweetness and flavor data
@@ -204,31 +226,6 @@ df %>%
     ggtitle("Mean Sensation Ratings of Each Sample")
 
 ggsave("plots/SEV2/SEV2_MeanSE_FlavSweet_bySample.png", height = 5, width = 9)
-
-
-## Sweetness and flavor rating means and SE for mixture samples only
-df %>%
-  filter(SampleCode %in% c("MIX1", "MIX2", "MIX3", "MIX4", "MIX5", "MIX6", "MIX7", "SW")) %>%
-  group_by(Sample) %>%
-  summarise(Flavor_Mean = mean(FlavRating),
-            Sweetness_Mean = mean(SweetRating),
-            Flavor_SE = sd(FlavRating)/sqrt(n()),
-            Sweetness_SE = sd(SweetRating)/sqrt(n())) %>%
-  pivot_longer(cols = -Sample,
-               names_to = c("Sensation", ".value"),
-               names_pattern = "(.*)_(.*)") %>%
-  
-  ggplot(aes(Sample, Mean, color = Sensation, shape = Sensation)) +
-    geom_point() +
-    geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.5) +
-    geom_hline(yintercept = 12.295731, color = "tomato1") +
-    geom_hline(yintercept =  18.571098, color = "deepskyblue3") +
-    ylim(0,100) +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-    ggtitle("Mean Sensation Ratings of Mixture Samples")
-
-ggsave("plots/SEV2/SEV2_MeanSE_FlavSweet_MixtureSamplesOnly.png", height = 5, width = 9)
 
 ```
 
@@ -401,25 +398,55 @@ df %>%
 ggsave("plots/SEV2/SEV2_MeanSE_FlavSweet_CtrlsOnly_SubjectFacet.png", height = 5, width = 9)
 
 
+```
+## subject TRTs
+```{r subject TRTs}
 
+## Calculate Sweetness TRTs
+trtS <- df %>%
+  filter(SampleCode != "SW") %>% #if SW is included, R makes Rep1 and Rep2 columns into lists of vectors rather than vectors because we have SW 1 and 2 that are in both sessions...I plan to find a workaround later
+  select(SubjectCode, SampleCode, Rep, SweetRating) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = SweetRating) %>%
+  group_by(SubjectCode) %>%
+  summarise(sweetTRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
 
-## Making a new dataframe that includes both the test and training data
-df2 <- df %>%
-  transmute(SubjectCode,
-            Session,
-            Sample,
-            SampleCode,
-            SweetRating #,
-            #FlavRating
-            ) %>%
-  pivot_longer(SweetRating, names_to = "RatingType", values_to = "Rating") %>%
-  bind_rows(Training.df) %>%
-  
-  #filtering out participants that did not do all 3 sessions
-    filter(!(SubjectCode %in% c(1001, 1004, 1005, 1011, 1013, 1014, 1020, 1029, 1030, 1038, 1047, # only did session 1
-                                1040, 1037 #only did sessions 1 and 2
-                                )))
-  
+## Calculate Flavor TRTs
+trtF <- df %>%
+  filter(SampleCode != "SW") %>% 
+  select(SubjectCode, SampleCode, Rep, FlavRating) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = FlavRating) %>%
+  group_by(SubjectCode) %>%
+  summarise(flavorTRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
+
+## Combine TRT dataframes
+allTRTs <- left_join(trtS, trtF)
+
+## Plot sweetness TRTs
+df %>%
+  filter(SampleCode != "SW") %>% #if SW is included, R makes Rep1 and Rep2 columns into lists of vectors rather than vectors because we have SW 1 and 2 that are in both sessions...I plan to find a workaround later
+  select(SubjectCode, SampleCode, Rep, SweetRating) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = SweetRating) %>%
+  group_by(SubjectCode) %>%
+  ggplot( aes(as.numeric(Rep1), as.numeric(Rep2), color = SampleCode)) +
+  geom_point() +
+  facet_wrap(~as.factor(SubjectCode))
+
+ggsave("plots/SEV2/SEV2_SweetnessTRTs.png", height = 5, width = 9)
+
+## Plot flavor TRTs
+df %>%
+  filter(SampleCode != "SW") %>% #if SW is included, R makes Rep1 and Rep2 columns into lists of vectors rather than vectors because we have SW 1 and 2 that are in both sessions...I plan to find a workaround later
+  select(SubjectCode, SampleCode, Rep, FlavRating) %>%
+  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = FlavRating) %>%
+  group_by(SubjectCode) %>%
+  ggplot( aes(as.numeric(Rep1), as.numeric(Rep2), color = SampleCode))+
+  geom_point()+
+  facet_wrap(~as.factor(SubjectCode))
+
+ggsave("plots/SEV2/SEV2_FlavorTRTs.png", height = 5, width = 9)
+```
+## Most intense sweetness check
+```{r most intense sweetness check}
 ## Plot sweetness ratings for all test samples + training ratings related to sweetness
 df2 %>%
   filter(!(SampleCode %in% c("A", "B", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "O", "P","Q", "R", "T", "U", "V", "W", "X", "Y"))) %>%
@@ -468,56 +495,7 @@ passfail.total <- passfail %>%
   summarise(FailRatio = Fail/Pass,
             PercentPass = (1-FailRatio)*100)
 
-
 ```
-
-## subject TRTs
-```{r subject TRTs}
-
-## Calculate Sweetness TRTs
-trtS <- df %>%
-  filter(SampleCode != "SW") %>% #if SW is included, R makes Rep1 and Rep2 columns into lists of vectors rather than vectors because we have SW 1 and 2 that are in both sessions...I plan to find a workaround later
-  select(SubjectCode, SampleCode, Rep, SweetRating) %>%
-  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = SweetRating) %>%
-  group_by(SubjectCode) %>%
-  summarise(sweetTRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
-
-## Calculate Flavor TRTs
-trtF <- df %>%
-  filter(SampleCode != "SW") %>% 
-  select(SubjectCode, SampleCode, Rep, FlavRating) %>%
-  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = FlavRating) %>%
-  group_by(SubjectCode) %>%
-  summarise(flavorTRT = cor(as.numeric(Rep1), as.numeric(Rep2)))
-
-## Combine TRT dataframes
-allTRTs <- left_join(trtS, trtF)
-
-## Plot sweetness TRTs
-df %>%
-  filter(SampleCode != "SW") %>% #if SW is included, R makes Rep1 and Rep2 columns into lists of vectors rather than vectors because we have SW 1 and 2 that are in both sessions...I plan to find a workaround later
-  select(SubjectCode, SampleCode, Rep, SweetRating) %>%
-  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = SweetRating) %>%
-  group_by(SubjectCode) %>%
-  ggplot( aes(as.numeric(Rep1), as.numeric(Rep2), color = SampleCode)) +
-  geom_point() +
-  facet_wrap(~as.factor(SubjectCode))
-
-ggsave("plots/SEV2/SEV2_SweetnessTRTs.png", height = 5, width = 9)
-
-## Plot flavor TRTs
-df %>%
-  filter(SampleCode != "SW") %>% #if SW is included, R makes Rep1 and Rep2 columns into lists of vectors rather than vectors because we have SW 1 and 2 that are in both sessions...I plan to find a workaround later
-  select(SubjectCode, SampleCode, Rep, FlavRating) %>%
-  pivot_wider(names_from = Rep, names_prefix = "Rep", values_from = FlavRating) %>%
-  group_by(SubjectCode) %>%
-  ggplot( aes(as.numeric(Rep1), as.numeric(Rep2), color = SampleCode))+
-  geom_point()+
-  facet_wrap(~as.factor(SubjectCode))
-
-ggsave("plots/SEV2/SEV2_FlavorTRTs.png", height = 5, width = 9)
-```
-
 
 # Normalizing Data
 ```{r normalizing data}
@@ -534,13 +512,15 @@ ctrl.means <- df %>%
 
  norm.df <- df2 %>%
    left_join(ctrl.means, df2, by = c("SubjectCode" = "SubjectCode", "Session" = "Session")) %>%
+   filter(RatingType != "Training") %>%
+   group_by(SubjectCode, Sample) %>%
    mutate(NormRating = Rating - swSess.mean) %>%
-   filter(RatingType != "Training")
+   mutate(PercentChange = (NormRating/swSess.mean)*100)
  
  
- ## Plot sweetness means of normalized data
+ ## Plot sweetness means/se of normalized data
  
- norm.df %>%
+  norm.df %>%
   filter(SubjectCode != 1028) %>% #this person's data was ALL OVER THE PLACE!
   group_by(Sample) %>%
   summarise(Norm_Mean = mean(NormRating),
@@ -557,10 +537,39 @@ ctrl.means <- df %>%
 
 ggsave("plots/SEV2/SEV2_NormMeanSE_Sweetness_bySample.png", height = 5, width = 9)
 
-## Plot sweetness ratings for mixture samples only
+
+
+
+ ## Plot percent increase/decrease in sweetness of all samples
+ 
 norm.df %>%
   filter(SubjectCode != 1028) %>% #this person's data was ALL OVER THE PLACE!
-  filter(SampleCode %in% c("MIX1", "MIX2", "MIX3", "MIX4", "MIX5", "MIX6", "MIX7", "SW")) %>%
+  group_by(Sample) %>%
+  summarise(PercentMean = mean(PercentChange),
+            PercentSE = sd(PercentChange)/sqrt(n())) %>%
+ 
+  ggplot(aes(reorder(Sample, PercentMean), PercentMean)) +
+    geom_point() +
+    labs(x = "Volatile(s) Added to 2.5 %(w/v) Sucrose", y = "Change in Sweetness Rating (%)", title = "Change in Sweetness Rating Relative to Control", fontface = "bold") +
+  
+    geom_errorbar(aes(ymin = PercentMean - PercentSE, ymax = PercentMean + PercentSE), width = 0.5) +
+    geom_hline(yintercept =  0, color = "deepskyblue3") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title = element_text(face = "bold"),
+          plot.title = element_text(face = "bold"))
+
+ggsave("plots/SEV2/SEV2_PercentChange_Sweetness_bySample.png", height = 5, width = 9)
+
+```
+## Terpene data only
+```{r terpenes only}
+
+
+## Plot normalized sweetness mean/se ratings for terpenoid-containing samples only
+norm.df %>%
+  filter(SubjectCode != 1028) %>% #this person's data was ALL OVER THE PLACE!
+  filter(SampleCode %in% c("MIX1", "MIX2", "MIX3", "MIX4", "MIX5", "MIX6", "MIX7", "LOOL", "CITR", "EUCA", "ATRP", "APIN", "NERL", "GRNL", "BCAR", "SLIM" ,"SW")) %>%
   group_by(Sample) %>%
   summarise(Norm_Mean = mean(NormRating),
             Norm_SE = sd(NormRating)/sqrt(n())) %>%
@@ -572,13 +581,13 @@ norm.df %>%
     ylim(-10,20) +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-    ggtitle("Normalized Mean Sweetness Ratings of Mixtures")
+    ggtitle("Normalized Mean Sweetness Ratings of Terpenes and Terpene Mixtures")
 
-ggsave("plots/SEV2/SEV2_NormMeanSE_Sweetness_MixturesOnly.png", height = 5, width = 9)
+ggsave("plots/SEV2/SEV2_NormMeanSE_Sweetness_TerpenesOnly.png", height = 5, width = 9)
 
 
 
- ## Plot sweetness means of normalized data per subject, line graph
+ ## Plot normalized sweetness means data per subject, line graph
  
 norm.df$SubjectCode <- as.factor (norm.df$SubjectCode)
 
@@ -598,7 +607,7 @@ ggsave("plots/SEV2/SEV2_NormMean_Sweetness_Line.png", height = 5, width = 9)
    
    
 
- ## Plot sweetness means of normalized data per subject, stacked bar graph
+ ## Plot normalized sweetness means data per subject, stacked bar graph
  
 norm.df$SubjectCode <- as.factor (norm.df$SubjectCode)
 
@@ -615,7 +624,51 @@ norm.df$SubjectCode <- as.factor (norm.df$SubjectCode)
     ggtitle("Normalized Mean Sweetness Ratings of Each Sample")
 
 ggsave("plots/SEV2/SEV2_NormMean_Sweetness_Bar.png", height = 5, width = 9)
+
+ 
+## Plot percent increase/decrease in sweetness of terpene samples only
+ 
+norm.df %>%
+  filter(SubjectCode != 1028) %>% #this person's data was ALL OVER THE PLACE!
+  group_by(Sample) %>%
+  summarise(PercentMean = mean(PercentChange),
+            PercentSE = sd(PercentChange)/sqrt(n())) %>%
+ 
+  ggplot(aes(reorder(Sample, PercentMean), PercentMean)) +
+    geom_point() +
+    labs(x = "Volatile(s) Added to 2.5 %(w/v) Sucrose", y = "Change in Sweetness Rating (%)", title = "Change in Sweetness Rating Relative to Control", fontface = "bold") +
   
+    geom_errorbar(aes(ymin = PercentMean - PercentSE, ymax = PercentMean + PercentSE), width = 0.5) +
+    geom_hline(yintercept =  0, color = "deepskyblue3") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title = element_text(face = "bold"),
+          plot.title = element_text(face = "bold"))
+
+ggsave("plots/SEV2/SEV2_PercentChange_Sweetness_TerpenesOnly.png", height = 5, width = 9)
+  
+```
+
+```{r box whisker}
+ norm.df %>%
+  filter(SubjectCode != 1028) %>% #this person's data was ALL OVER THE PLACE!
+  group_by(Sample) %>%
+  summarise(Norm_Mean = mean(NormRating),
+            Norm_SE = sd(NormRating)/sqrt(n()),
+            NormRating,
+            SubjectCode) %>%
+ 
+  ggplot(aes(reorder(Sample, NormRating), NormRating)) +
+    geom_boxplot() +
+   # geom_errorbar(aes(ymin = Norm_Mean - Norm_SE, ymax = Norm_Mean + Norm_SE), width = 0.5) +
+    #geom_hline(yintercept =  0, color = "deepskyblue3") +
+    #ylim(-10,20) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ggtitle("Normalized Mean Sweetness Ratings of Each Sample") #+
+    #facet_wrap(~SubjectCode)
+
+
 ```
 
 
