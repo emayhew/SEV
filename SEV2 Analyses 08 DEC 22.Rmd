@@ -1,0 +1,390 @@
+---
+title: "08 DEC 22"
+author: "Aubrey DuBois"
+date: "2022-12-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60), tidy = TRUE)
+```
+
+# Load packages
+
+```{r load packages}
+
+library(tidyverse) # data cleaning
+library(readxl) # import excel files
+library(ggplot2) # data visualization
+library(lubridate) # handling dates
+library(styler) # tidy style
+library(lintr) # tidy check
+
+```
+
+
+# Read in and clean data
+
+```{r read in & clean data}
+
+# Training Data ===============================================================
+
+# Training data on remembered sensations (session 1)
+training_df <- read_excel(
+  "data/SEV_v2_-_Training_-_Raw_Data.xlsx", 
+  sheet = 4, 
+  skip = 3) %>%
+  rename(rating = 
+           `Please mark the perceived intensity of {{sample_name}} exactly as you recorded it on your paper sheet.`) %>%
+  mutate(session = 1) %>%
+
+# bind training data to session 2 training data    
+  bind_rows(
+    read_excel(
+      "data/SEV_v2_-_Training_refresher_for_sess_2_-_Raw_Data.xlsx", 
+      sheet = 4, 
+      skip = 3) %>%
+    rename(rating = 
+             `Please mark the perceived intensity of {{sample_name}} on the scale below.(You may also mark them on your paper scale if you would like but it is not required.)`) %>%
+    mutate(session = 2)) %>%
+
+# bind session 3 training data to training and session 2 training data    
+  bind_rows(
+    read_excel(
+      "data/SEV_v2_-_Refresher_for_session_3_-_Raw_Data.xlsx", 
+      sheet = 4, 
+      skip = 3) %>%
+    rename(rating = 
+             `Please mark the perceived intensity of {{sample_name}} on the scale below.(You may also mark them on your paper scale if you would like but it is not required.)`) %>%
+    mutate(session = 3)) %>%
+  
+  rename(sample = `Sample Name`) %>%
+  transmute(
+    subject = `Participant Code`,
+    sample,
+    rating,
+    session
+  ) %>%
+  separate(sample, 
+           into = c("sample_code", "sample"), 
+           sep = ". ", 
+           extra = "merge") %>%
+  mutate(rating_type = "training") %>%
+  filter(!(
+    subject %in% c(
+      1080, 1130, #1080 is emily, 1130 is from checking functionality
+      1001, 1004, 1005, 1011, 1013, 1014, # completed only session 1
+      1020, 1029, 1030, 1038, 1047, # completed only session 1
+      1037, 1040 # completed only sessions 1 and 2
+  )))
+
+
+# Test Sample data ============================================================
+
+# Due to the way the tests were set up in RedJade, 
+## the subject code in sessions 2 and 3 do not reflect the true numbers.
+## Test session data is read in separately so that subject codes 
+## can be corrected in session 2 and 3 data before data is combined.
+
+
+
+# Read Session 1 data into temporary df
+temp1 <- read_excel(
+  "data/SEV_v2_-_Session_1_-_Raw_Data.xlsx", 
+  sheet = 3, 
+  skip = 3) %>%
+  transmute(
+    subject = `Participant Code`,
+    sample = `Sample Name`,
+    rep = `Repetition`,
+    sweet_rating = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness only.Sweetness:  the pleasant taste sensation typically produced by sugars (such as sucrose or glucose)`,
+    flavor_rating = `Please take a sip of sample {{sample_code}} and rate the intensity of flavor only.Flavor: the combined effect of taste sensations, aromas, and chemical feeling factors (e.g. burn of a chili, cooling of menthol) in the mouth.`,
+    serve_order = `Position`,
+   # start_time = `Start Time (UTC)`,
+   # end_time = `End Time (UTC)`
+  ) %>%
+  mutate(session = 1) %>%
+  filter(!(
+    subject %in% c(
+      1080, 1130))) # 1080 is Emily, 1130 was checking the test functionality
+
+
+# Read in Session 2 data into temporary df, correct subject codes
+temp2 <- read_excel("data/SEV_v2_-_Session_2_-_Raw_Data.xlsx", sheet = 4, skip = 3) %>%
+  pivot_wider(names_from = `Participant Code`, names_prefix = "Sub", values_from = `Participant Code`) %>%
+  transmute(
+    `subject` = case_when(
+      Sub1011 == 1011 ~ 1002,
+      Sub1008 == 1008 ~ 1003,
+      Sub1021 == 1021 ~ 1006,
+      Sub1037 == 1037 ~ 1007,
+      Sub1007 == 1007 ~ 1008,
+      Sub1012 == 1012 ~ 1009,
+      Sub1015 == 1015 ~ 1010,
+      Sub1022 == 1022 ~ 1012,
+      Sub1016 == 1016 ~ 1015,
+      Sub1014 == 1014 ~ 1016,
+      Sub1027 == 1027 ~ 1017,
+      Sub1029 == 1029 ~ 1018,
+      Sub1009 == 1009 ~ 1019,
+      Sub1030 == 1030 ~ 1021,
+      Sub1017 == 1017 ~ 1022,
+      Sub1020 == 1020 ~ 1023,
+      Sub1031 == 1031 ~ 1024,
+      Sub1005 == 1005 ~ 1025,
+      Sub1013 == 1013 ~ 1026,
+      Sub1035 == 1035 ~ 1027,
+      Sub1019 == 1019 ~ 1028,
+      Sub1010 == 1010 ~ 1031,
+      Sub1003 == 1003 ~ 1032,
+      Sub1004 == 1004 ~ 1033,
+      Sub1028 == 1028 ~ 1034,
+      Sub1025 == 1025 ~ 1035,
+      Sub1018 == 1018 ~ 1036,
+      Sub1033 == 1033 ~ 1037,
+      Sub1023 == 1023 ~ 1039,
+      Sub1032 == 1032 ~ 1040,
+      Sub1038 == 1038 ~ 1045,
+      Sub1034 == 1034 ~ 1046,
+      Sub1006 == 1006 ~ 1048,
+      TRUE ~ 0000),
+    sample = `Sample Name`,
+    rep = `Repetition`,
+    sweet_rating = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness only.Sweetness:  the pleasant taste sensation typically produced by sugars (such as sucrose or glucose)`,
+    flavor_rating = `Please take a sip of sample {{sample_code}} and rate the intensity of flavor only.Flavor: the combined effect of taste sensations, aromas, and chemical feeling factors (e.g. burn of a chili, cooling of menthol) in the mouth.`,
+    serve_order = `Position`,
+   # start_time = `Start Time (UTC)`,
+   # end_time = `End Time (UTC)`
+  ) %>%
+  mutate(session = 2)
+
+
+# Read in Session 3 data into temporary df, correct subject codes
+temp3 <- read_excel("data/SEV_v2_-_Session_3_-_Raw_Data.xlsx", sheet = 5, skip = 3) %>%
+  pivot_wider(names_from = `Participant Code`, names_prefix = "Sub", values_from = `Participant Code`) %>%
+  transmute(
+    `subject` = case_when(
+      Sub1021 == 1021 ~ 1002,
+      Sub1010 == 1010 ~ 1003,
+      Sub1015 == 1015 ~ 1006,
+      Sub1008 == 1008 ~ 1007,
+      Sub1007 == 1007 ~ 1008,
+      Sub1027 == 1027 ~ 1009,
+      Sub1006 == 1006 ~ 1010,
+      Sub1030 == 1030 ~ 1012,
+      Sub1014 == 1014 ~ 1015,
+      Sub1018 == 1018 ~ 1016,
+      Sub1017 == 1017 ~ 1017,
+      Sub1016 == 1016 ~ 1018,
+      Sub1012 == 1012 ~ 1019,
+      Sub1022 == 1022 ~ 1021,
+      Sub1026 == 1026 ~ 1022,
+      Sub1009 == 1009 ~ 1023,
+      Sub1029 == 1029 ~ 1024,
+      Sub1028 == 1028 ~ 1025,
+      Sub1025 == 1025 ~ 1026,
+      Sub1032 == 1032 ~ 1027,
+      Sub1002 == 1002 ~ 1028,
+      Sub1011 == 1011 ~ 1031,
+      Sub1003 == 1003 ~ 1032,
+      Sub1004 == 1004 ~ 1033,
+      Sub1013 == 1013 ~ 1034,
+      Sub1023 == 1023 ~ 1035,
+      Sub1019 == 1019 ~ 1036,
+      Sub1020 == 1020 ~ 1039,
+      Sub1024 == 1024 ~ 1045,
+      Sub1031 == 1031 ~ 1046,
+      Sub1005 == 1005 ~ 1048,
+      TRUE ~ 0000),
+    sample = `Sample Name`,
+    rep = `Repetition`,
+    sweet_rating = `Please take a sip of sample {{sample_code}} and rate the intensity of sweetness only.Sweetness:  the pleasant taste sensation typically produced by sugars (such as sucrose or glucose)`,
+    flavor_rating = `Please take a sip of sample {{sample_code}} and rate the intensity of flavor only.Flavor: the combined effect of taste sensations, aromas, and chemical feeling factors (e.g. burn of a chili, cooling of menthol) in the mouth.`,
+    serve_order = `Position`,
+   # start_time = `Start Time (UTC)`,
+   # end_time = `End Time (UTC)`
+  ) %>%
+  mutate(session = 3)
+
+# import volatile concentration data
+conc_df <- read_excel("data/SEV_concentrations.xlsx", sheet = 2) %>%
+  select(-c(
+    unit, # concentrations in ppb
+    notes_ppb, # volatile composition of mixtures
+    study # SEV2
+  ))
+
+
+# Combine temp dfs from each session
+df <- bind_rows(temp1, temp2) %>%
+  bind_rows(temp3) %>%
+  separate(sample, 
+           into = c("sample_code", "sample"), 
+           sep = ". ", 
+           extra = "merge") %>%
+  filter(!(
+    subject %in% 
+      c("1001", "1004", "1005", "1011", "1013", "1014", # completed only session 1
+        "1020", "1029", "1030", "1038", "1047", # completed only session 1
+        "1037", "1040" # completed only sessions 1 and 2
+  ))) %>%
+  right_join(y = conc_df, by = "sample_code") %>%
+  pivot_longer(sweet_rating:flavor_rating, names_to = "rating_type", values_to = "rating")
+
+df$subject <- as.character(df$subject)
+training_df$subject <- as.character(training_df$subject)
+
+## Remove temp dfs
+remove(temp1)
+remove(temp2)
+remove(temp3)
+
+
+# Additional cleaning =========================================================
+
+# import data frame containing volatile concentrations in each sample
+conc_df <- read_excel("data/SEV_concentrations.xlsx", sheet = 2) %>%
+  select(-c(
+    unit, # concentrations in ppb
+    notes_ppb, # volatile composition of mixtures
+    study # SEV2
+  ))
+
+df$subject <- as.character(df$subject)
+training_df$subject <- as.character(training_df$subject)
+
+
+# df of ctrl sweetness ratings
+ ctrl_s <- df %>%
+   filter(sample_code == "SW",
+          rating_type == "sweet_rating") %>%
+   group_by(subject, session) %>%
+   mutate(ctrl_sweet = mean(rating)) %>%
+   select(c(subject, ctrl_sweet, session))
+ 
+ 
+ # df of ctrl flavor ratings
+ ctrl_f <- df %>%
+   filter(sample_code == "SW",
+          rating_type == "flavor_rating") %>%
+   group_by(subject, session) %>%
+   mutate(ctrl_flavor = mean(rating)) %>%
+   select(c(subject, ctrl_flavor, session))
+ 
+ 
+ # combined df of ctrl flavor and ctrl sweet ratings
+ ctrl_s_f <- left_join(ctrl_s, ctrl_f, by = c("subject", "session")) %>%
+   transmute(subject, session, ctrl_sweet, ctrl_flavor) %>%
+   unique()
+ 
+ 
+```
+
+```{r normalizing}
+
+ 
+# merge temp_s__f with df, make ratio of rating/ctrl rating
+ df_norm <- df %>%
+   left_join(ctrl_s_f, by = c("subject", "session")) %>%
+   group_by(subject, session) %>%
+   pivot_wider(values_from = rating, names_from = rating_type) %>%
+   mutate(sweet_norm = sweet_rating/ctrl_sweet,
+          flavor_norm = flavor_rating/ctrl_flavor,
+          sample_code = str_replace_all(sample_code,
+                                   c("MIX1" = "HACT + EBUT",
+                                     "MIX2" = "HACT + EUCA",
+                                     "MIX3" = "Top 6 [n]",
+                                     "MIX4" = "All [n]",
+                                     "MIX5" = "Low Terp",
+                                     "MIX6" = "Med Terp",
+                                     "MIX7" = "High Terp")),
+          sweet_change = ((sweet_norm/ctrl_sweet) * 100), 
+          flavor_change = ((flavor_norm/ctrl_flavor)*100)) %>%
+  
+   relocate(session,
+            subject,
+            sample_code,
+            sample, 
+            rep,
+            sweet_rating,
+            ctrl_sweet,
+            sweet_norm,
+            sweet_change,
+            flavor_rating,
+            ctrl_flavor,
+            flavor_norm,
+            flavor_change,
+            total_volatiles,
+            total_alcohols,
+            total_aldehydes,
+            total_azoles,
+            total_esters,
+            total_ketones,
+            total_lactones,
+            total_terpenes,
+            serve_order
+            )
+
+
+
+```
+
+# Plotting
+
+```{r plotting data}
+
+
+# plot sweetness means + se sweetness trends
+df_norm %>%
+  group_by(sample) %>%
+  summarize(sweet_mean = mean(sweet_rating),
+            sweet_se = sd(sweet_rating)/sqrt(n()),
+            sample,
+            sample_code) %>%
+
+  ggplot(aes(reorder(sample_code, sweet_mean), sweet_mean, color = sample_code)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = sweet_mean - sweet_se, ymax = sweet_mean + sweet_se), width = 0.5) +
+    geom_hline(yintercept = (17.23118 + 1.339918), color = "tomato1") +
+    ylim(0,100) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+    
+    
+    # plot normalized sweetness means + se sweetness trends
+
+df_norm %>%
+  group_by(sample) %>%
+  summarize(sweet_mean = mean(sweet_norm),
+            sweet_se = sd(sweet_norm)/sqrt(n()),
+            sample,
+            sample_code) %>%
+
+  ggplot(aes(reorder(sample_code, sweet_mean), sweet_mean, color = sample_code)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = sweet_mean - sweet_se, ymax = sweet_mean + sweet_se), width = 0.5) +
+    geom_hline(yintercept = (1 + 0.03088886), color = "tomato1") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ylim(0, 10)
+
+
+
+# percent change using normalized data
+
+df_norm %>%
+  group_by(sample) %>%
+  summarize(sweet_mean = mean(sweet_change),
+            sweet_se = sd(sweet_change)/sqrt(n()),
+            sample,
+            sample_code) %>%
+
+  ggplot(aes(reorder(sample_code, sweet_mean), sweet_mean, color = sample_code)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = sweet_mean - sweet_se, ymax = sweet_mean + sweet_se), width = 0.5) +
+    geom_hline(yintercept = (1 + 0.03088886), color = "tomato1") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
